@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/exhaustive-deps */
 import { useState, useEffect, useCallback } from "react";
 import { db } from "./firebase";
 import { ref, onValue, set, off } from "firebase/database";
