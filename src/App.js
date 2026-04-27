@@ -40,12 +40,16 @@ function makeChecklist(template) {
 
 const DEFAULT_ROOMS = [{ id: "room0", name: "Sala Principal", material: "", obs: "", checklist: makeChecklist(INITIAL_TEMPLATE), expanded: false }];
 const DEFAULT_TASKS = [];
+const DEFAULT_STOCK = [];
 const PRIORITIES = [{ label: "Alta", value: "alta", color: "#ef4444" }, { label: "Média", value: "media", color: "#f59e0b" }, { label: "Baixa", value: "baixa", color: "#22c55e" }];
 const STATUS = {
   pending:    { label: "Pendente",   color: "#94a3b8", bg: "#f8fafc", border: "#e2e8f0", icon: null },
   done:       { label: "Concluído",  color: "#16a34a", bg: "#f0fdf4", border: "#bbf7d0", icon: "✓" },
   incomplete: { label: "Incompleto", color: "#dc2626", bg: "#fff1f2", border: "#fecaca", icon: "!" },
 };
+const UNITS = ["un", "m", "m²", "m³", "kg", "L", "rolo", "cx", "saco"];
+function todayStr() { return new Date().toISOString().slice(0, 10); }
+function waLink(text) { return `https://wa.me/?text=${encodeURIComponent(text)}`; }
 
 function ChecklistItem({ item, onChange, onRemove }) {
   const [showObs, setShowObs] = useState(item.status === "incomplete");
@@ -63,34 +67,18 @@ function ChecklistItem({ item, onChange, onRemove }) {
         </button>
         <span style={{ flex: 1, fontFamily: "'Sora',sans-serif", fontSize: 13, fontWeight: 500, color: item.status === "done" ? "#16a34a" : item.status === "incomplete" ? "#dc2626" : "#475569", textDecoration: item.status === "done" ? "line-through" : "none" }}>{item.text}</span>
         <span style={{ padding: "2px 9px", borderRadius: 99, fontSize: 11, fontWeight: 700, fontFamily: "'Sora',sans-serif", color: st.color, background: st.color + "18", flexShrink: 0 }}>{st.label}</span>
-        {item.status !== "incomplete" && (
-          <button onClick={() => { onChange({ ...item, status: "incomplete" }); setShowObs(true); }} style={{ padding: "3px 8px", border: "1.5px solid #fecaca", borderRadius: 7, background: "transparent", cursor: "pointer", fontSize: 11, color: "#dc2626", fontFamily: "'Sora',sans-serif", fontWeight: 700, flexShrink: 0 }}>!</button>
-        )}
-        {item.status === "incomplete" && (
-          <button onClick={() => setShowObs(v => !v)} style={{ padding: "3px 8px", border: "1.5px solid #fecaca", borderRadius: 7, background: showObs ? "#fecaca" : "transparent", cursor: "pointer", fontSize: 11, color: "#dc2626", fontFamily: "'Sora',sans-serif", fontWeight: 700, flexShrink: 0 }}>💬</button>
-        )}
+        {item.status !== "incomplete" && (<button onClick={() => { onChange({ ...item, status: "incomplete" }); setShowObs(true); }} style={{ padding: "3px 8px", border: "1.5px solid #fecaca", borderRadius: 7, background: "transparent", cursor: "pointer", fontSize: 11, color: "#dc2626", fontFamily: "'Sora',sans-serif", fontWeight: 700, flexShrink: 0 }}>!</button>)}
+        {item.status === "incomplete" && (<button onClick={() => setShowObs(v => !v)} style={{ padding: "3px 8px", border: "1.5px solid #fecaca", borderRadius: 7, background: showObs ? "#fecaca" : "transparent", cursor: "pointer", fontSize: 11, color: "#dc2626", fontFamily: "'Sora',sans-serif", fontWeight: 700, flexShrink: 0 }}>💬</button>)}
         <button onClick={onRemove} style={{ background: "transparent", border: "none", cursor: "pointer", color: "#cbd5e1", fontSize: 14, padding: "0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button>
       </div>
       {item.status === "incomplete" && showObs && (
         <div style={{ padding: "0 12px 10px", borderTop: "1px solid #fecaca" }}>
-          <input placeholder="Motivo / observação do problema…" value={item.obs || ""} onChange={e => onChange({ ...item, obs: e.target.value })} style={{ width: "100%", boxSizing: "border-box", marginTop: 8, padding: "7px 12px", border: "1.5px solid #fecaca", borderRadius: 8, fontFamily: "'Sora',sans-serif", fontSize: 13, background: "#fff7f7", color: "#7f1d1d", outline: "none" }} />
-          {item.obs && <div style={{ marginTop: 5, fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#dc2626", fontStyle: "italic" }}>⚠️ {item.obs}</div>}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function Checklist({ checklist, onUpdate }) {
   const [newText, setNewText] = useState("");
   const [adding, setAdding] = useState(false);
   function updateItem(id, updated) { onUpdate(checklist.map(c => c.id === id ? updated : c)); }
   function removeItem(id) { onUpdate(checklist.filter(c => c.id !== id)); }
-  function addItem() {
-    if (!newText.trim()) return;
-    onUpdate([...checklist, { id: genId(), text: newText.trim(), status: "pending", obs: "" }]);
-    setNewText(""); setAdding(false);
-  }
+  function addItem() { if (!newText.trim()) return; onUpdate([...checklist, { id: genId(), text: newText.trim(), status: "pending", obs: "" }]); setNewText(""); setAdding(false); }
   const done = checklist.filter(c => c.status === "done").length;
   const incomplete = checklist.filter(c => c.status === "incomplete").length;
   const total = checklist.length;
@@ -184,7 +172,6 @@ function SettingsModal({ template, onSave, onClose }) {
     </div>
   );
 }
-
 function MaterialTab() {
   const [rooms, setRooms, roomsLoading] = useFirebase("rooms", DEFAULT_ROOMS);
   const [template, setTemplate, tplLoading] = useFirebase("template", INITIAL_TEMPLATE);
@@ -197,24 +184,14 @@ function MaterialTab() {
   const filtered = (rooms || []).filter(r => r.name.toLowerCase().includes(search.toLowerCase()) || (r.material || "").toLowerCase().includes(search.toLowerCase()));
   function saveEdit(id, field, val) { setRooms(rooms.map(r => r.id === id ? { ...r, [field]: val } : r)); }
   function deleteRoom(id) { setRooms(rooms.filter(r => r.id !== id)); }
-  function addRoom() {
-    if (!newRoom.name.trim()) return;
-    setRooms([...rooms, { ...newRoom, id: genId(), checklist: makeChecklist(template), expanded: true }]);
-    setNewRoom({ name: "", material: "", obs: "" }); setAdding(false);
-  }
+  function addRoom() { if (!newRoom.name.trim()) return; setRooms([...rooms, { ...newRoom, id: genId(), checklist: makeChecklist(template), expanded: true }]); setNewRoom({ name: "", material: "", obs: "" }); setAdding(false); }
   function toggleExpand(id) { setRooms(rooms.map(r => r.id === id ? { ...r, expanded: !r.expanded } : r)); }
   function updateChecklist(id, cl) { setRooms(rooms.map(r => r.id === id ? { ...r, checklist: cl } : r)); }
   const totalItems = (rooms || []).reduce((a, r) => a + (r.checklist?.length || 0), 0);
   const doneItems = (rooms || []).reduce((a, r) => a + (r.checklist?.filter(c => c.status === "done").length || 0), 0);
   const incItems = (rooms || []).reduce((a, r) => a + (r.checklist?.filter(c => c.status === "incomplete").length || 0), 0);
   const globalPct = totalItems ? Math.round((doneItems / totalItems) * 100) : 0;
-  if (loading) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 200, gap: 12, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>
-      <div style={{ width: 24, height: 24, border: "3px solid #e2e8f0", borderTopColor: "#6366f1", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-      A sincronizar com a cloud…
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-    </div>
-  );
+  if (loading) return (<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 200, gap: 12, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}><div style={{ width: 24, height: 24, border: "3px solid #e2e8f0", borderTopColor: "#6366f1", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />A sincronizar…<style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style></div>);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       {showSettings && <SettingsModal template={template} onSave={t => { setTemplate(t); setShowSettings(false); }} onClose={() => setShowSettings(false)} />}
@@ -246,7 +223,7 @@ function MaterialTab() {
       </div>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
         <input placeholder="🔍 Pesquisar sala ou material…" value={search} onChange={e => setSearch(e.target.value)} style={{ ...S.input, flex: 1, minWidth: 180 }} />
-        <button onClick={() => setShowSettings(true)} style={{ ...S.btnGhost, display: "flex", alignItems: "center", gap: 6, border: "1.5px solid #c7d2fe", color: "#6366f1" }}>⚙️ Configurar checklist</button>
+        <button onClick={() => setShowSettings(true)} style={{ ...S.btnGhost, display: "flex", alignItems: "center", gap: 6, border: "1.5px solid #c7d2fe", color: "#6366f1" }}>⚙️ Configurar</button>
         <button onClick={() => setAdding(true)} style={S.btnPrimary}>+ Nova Sala</button>
       </div>
       <div style={{ background: "#eef2ff", border: "1.5px solid #c7d2fe", borderRadius: 12, padding: "12px 16px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -258,14 +235,11 @@ function MaterialTab() {
           <div style={S.cardHeader}>Nova Sala</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, padding: "16px 20px" }}>
             <div style={{ gridColumn: "1/-1" }}><label style={S.label}>Nome da Sala *</label><input value={newRoom.name} onChange={e => setNewRoom(n => ({ ...n, name: e.target.value }))} style={S.input} placeholder="Ex: Quarto 3" /></div>
-            <div><label style={S.label}>Material Utilizado</label><input value={newRoom.material} onChange={e => setNewRoom(n => ({ ...n, material: e.target.value }))} style={S.input} placeholder="Ex: Cabo 1.5mm…" /></div>
+            <div><label style={S.label}>Material</label><input value={newRoom.material} onChange={e => setNewRoom(n => ({ ...n, material: e.target.value }))} style={S.input} placeholder="Ex: Cabo 1.5mm…" /></div>
             <div><label style={S.label}>Observações</label><input value={newRoom.obs} onChange={e => setNewRoom(n => ({ ...n, obs: e.target.value }))} style={S.input} placeholder="Notas…" /></div>
           </div>
-          <div style={{ padding: "0 20px 4px", color: "#6366f1", fontSize: 12, fontFamily: "'Sora',sans-serif", fontWeight: 600 }}>✓ Serão adicionados {template.length} ponto(s) da checklist configurada.</div>
-          <div style={{ display: "flex", gap: 10, padding: "12px 20px 16px" }}>
-            <button onClick={addRoom} style={S.btnPrimary}>Guardar</button>
-            <button onClick={() => setAdding(false)} style={S.btnGhost}>Cancelar</button>
-          </div>
+          <div style={{ padding: "0 20px 4px", color: "#6366f1", fontSize: 12, fontFamily: "'Sora',sans-serif", fontWeight: 600 }}>✓ {template.length} ponto(s) serão adicionados.</div>
+          <div style={{ display: "flex", gap: 10, padding: "12px 20px 16px" }}><button onClick={addRoom} style={S.btnPrimary}>Guardar</button><button onClick={() => setAdding(false)} style={S.btnGhost}>Cancelar</button></div>
         </div>
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -290,7 +264,7 @@ function MaterialTab() {
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                  {hasIssues && <span style={{ padding: "3px 10px", borderRadius: 99, background: "#fee2e2", color: "#dc2626", fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 700 }}>⚠️ {incomplete} incompleto(s)</span>}
+                  {hasIssues && <span style={{ padding: "3px 10px", borderRadius: 99, background: "#fee2e2", color: "#dc2626", fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 700 }}>⚠️ {incomplete}</span>}
                   <span style={{ padding: "4px 12px", borderRadius: 99, fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, background: hasIssues ? "#fee2e2" : allDone ? "#dcfce7" : pct > 0 ? "#fef3c7" : "#f1f5f9", color: hasIssues ? "#dc2626" : allDone ? "#16a34a" : pct > 0 ? "#d97706" : "#94a3b8" }}>⚡ {done}/{total}</span>
                   <button onClick={e => { e.stopPropagation(); setEditing(editing === room.id ? null : room.id); }} style={{ ...S.btnSmall, background: "transparent", border: "none" }}>✏️</button>
                   <button onClick={e => { e.stopPropagation(); deleteRoom(room.id); }} style={{ ...S.btnSmall, background: "transparent", border: "none", color: "#ef4444" }}>🗑</button>
@@ -301,9 +275,9 @@ function MaterialTab() {
                 <>
                   {editing === room.id && (
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, padding: "14px 20px", background: "#fff", borderBottom: "1px solid #f1f5f9" }}>
-                      <div><label style={S.label}>Nome da Sala</label><input defaultValue={room.name} onBlur={e => saveEdit(room.id, "name", e.target.value)} style={{ ...S.input, fontSize: 13 }} /></div>
+                      <div><label style={S.label}>Nome</label><input defaultValue={room.name} onBlur={e => saveEdit(room.id, "name", e.target.value)} style={{ ...S.input, fontSize: 13 }} /></div>
                       <div />
-                      <div><label style={S.label}>Material Utilizado</label><input defaultValue={room.material} onBlur={e => saveEdit(room.id, "material", e.target.value)} style={{ ...S.input, fontSize: 13 }} /></div>
+                      <div><label style={S.label}>Material</label><input defaultValue={room.material} onBlur={e => saveEdit(room.id, "material", e.target.value)} style={{ ...S.input, fontSize: 13 }} /></div>
                       <div><label style={S.label}>Observações</label><input defaultValue={room.obs} onBlur={e => saveEdit(room.id, "obs", e.target.value)} style={{ ...S.input, fontSize: 13 }} /></div>
                       <div style={{ gridColumn: "1/-1" }}><button onClick={() => setEditing(null)} style={{ ...S.btnPrimary, fontSize: 13, padding: "8px 18px" }}>✓ Guardar</button></div>
                     </div>
@@ -322,21 +296,22 @@ function MaterialTab() {
           );
         })}
       </div>
-      <div style={{ color: "#94a3b8", fontSize: 13, fontFamily: "'Sora',sans-serif" }}>{filtered.length} sala(s) · Dados sincronizados em tempo real</div>
     </div>
   );
 }
-
 function TasksTab() {
   const [tasks, setTasks, loading] = useFirebase("tasks", DEFAULT_TASKS);
   const [newTask, setNewTask] = useState({ text: "", priority: "media", date: "" });
   const [filter, setFilter] = useState("todas");
+  const [obsOpen, setObsOpen] = useState({});
   function addTask() {
     if (!newTask.text.trim()) return;
-    setTasks([{ ...newTask, id: genId(), done: false }, ...(tasks || [])]);
+    const task = { ...newTask, id: genId(), done: false, doneAt: null, doneObs: "" };
+    setTasks([task, ...(tasks || [])]);
     setNewTask({ text: "", priority: "media", date: "" });
   }
-  function toggleDone(id) { setTasks((tasks || []).map(t => t.id === id ? { ...t, done: !t.done } : t)); }
+  function toggleDone(id) { setTasks((tasks || []).map(t => { if (t.id !== id) return t; const nowDone = !t.done; return { ...t, done: nowDone, doneAt: nowDone ? new Date().toISOString() : null, doneObs: nowDone ? (t.doneObs || "") : "" }; })); }
+  function updateDoneObs(id, val) { setTasks((tasks || []).map(t => t.id === id ? { ...t, doneObs: val } : t)); }
   function deleteTask(id) { setTasks((tasks || []).filter(t => t.id !== id)); }
   const allTasks = tasks || [];
   const filtered = allTasks.filter(t => { if (filter === "pendentes") return !t.done; if (filter === "concluídas") return t.done; return true; });
@@ -362,33 +337,48 @@ function TasksTab() {
         <div style={S.cardHeader}>Nova Tarefa</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 12, padding: "16px 20px" }}>
           <input placeholder="Descrição da tarefa…" value={newTask.text} onChange={e => setNewTask(n => ({ ...n, text: e.target.value }))} onKeyDown={e => e.key === "Enter" && addTask()} style={S.input} />
-          <select value={newTask.priority} onChange={e => setNewTask(n => ({ ...n, priority: e.target.value }))} style={S.input}>
-            {PRIORITIES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-          </select>
+          <select value={newTask.priority} onChange={e => setNewTask(n => ({ ...n, priority: e.target.value }))} style={S.input}>{PRIORITIES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}</select>
           <input type="date" value={newTask.date} onChange={e => setNewTask(n => ({ ...n, date: e.target.value }))} style={S.input} />
         </div>
-        <div style={{ padding: "0 20px 16px" }}><button onClick={addTask} style={S.btnPrimary}>+ Adicionar Tarefa</button></div>
+        <div style={{ padding: "0 20px 16px", display: "flex", gap: 10, alignItems: "center" }}>
+          <button onClick={addTask} style={S.btnPrimary}>+ Adicionar Tarefa</button>
+          {newTask.text.trim() && (
+            <a href={waLink(`🏗️ Nova tarefa na obra:\n"${newTask.text}"\nPrioridade: ${PRIORITIES.find(p => p.value === newTask.priority)?.label}${newTask.date ? `\nData: ${newTask.date}` : ""}\n\nhttps://obracontrol-beta.vercel.app`)} target="_blank" rel="noreferrer"
+              style={{ padding: "9px 16px", background: "#25d366", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, textDecoration: "none", display: "flex", alignItems: "center", gap: 6 }}>
+              📲 Partilhar no WhatsApp
+            </a>
+          )}
+        </div>
       </div>
       <div style={{ display: "flex", gap: 8 }}>
-        {["todas", "pendentes", "concluídas"].map(f => (
-          <button key={f} onClick={() => setFilter(f)} style={{ ...S.btnGhost, background: filter === f ? "#1e293b" : "transparent", color: filter === f ? "#fff" : "#64748b", textTransform: "capitalize" }}>{f}</button>
-        ))}
+        {["todas", "pendentes", "concluídas"].map(f => (<button key={f} onClick={() => setFilter(f)} style={{ ...S.btnGhost, background: filter === f ? "#1e293b" : "transparent", color: filter === f ? "#fff" : "#64748b", textTransform: "capitalize" }}>{f}</button>))}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {filtered.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>Nenhuma tarefa.</div>}
         {filtered.map(task => {
           const pri = PRIORITIES.find(p => p.value === task.priority);
+          const isObsOpen = obsOpen[task.id];
           return (
-            <div key={task.id} style={{ ...S.card, padding: 0, opacity: task.done ? 0.65 : 1 }}>
+            <div key={task.id} style={{ ...S.card, padding: 0, border: task.done ? "1.5px solid #bbf7d0" : "1.5px solid #e2e8f0" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 18px" }}>
                 <button onClick={() => toggleDone(task.id)} style={{ width: 24, height: 24, borderRadius: "50%", border: `2.5px solid ${task.done ? "#22c55e" : "#cbd5e1"}`, background: task.done ? "#22c55e" : "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   {task.done && <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
                 </button>
-                <span style={{ flex: 1, fontFamily: "'Sora',sans-serif", fontWeight: 500, color: "#1e293b", textDecoration: task.done ? "line-through" : "none", fontSize: 15 }}>{task.text}</span>
-                <span style={{ padding: "3px 10px", borderRadius: 99, background: pri?.color + "22", color: pri?.color, fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700 }}>{pri?.label}</span>
-                {task.date && <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#94a3b8" }}>📅 {task.date}</span>}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: "'Sora',sans-serif", fontWeight: 500, color: "#1e293b", textDecoration: task.done ? "line-through" : "none", fontSize: 15 }}>{task.text}</div>
+                  {task.done && task.doneAt && <div style={{ fontSize: 11, color: "#22c55e", fontFamily: "'Sora',sans-serif", marginTop: 2 }}>✓ {new Date(task.doneAt).toLocaleDateString("pt-PT", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</div>}
+                  {task.done && task.doneObs && <div style={{ fontSize: 12, color: "#16a34a", fontFamily: "'Sora',sans-serif", fontStyle: "italic", marginTop: 2 }}>💬 {task.doneObs}</div>}
+                </div>
+                <span style={{ padding: "3px 10px", borderRadius: 99, background: pri?.color + "22", color: pri?.color, fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{pri?.label}</span>
+                {task.date && <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#94a3b8", flexShrink: 0 }}>📅 {task.date}</span>}
+                {task.done && <button onClick={() => setObsOpen(o => ({ ...o, [task.id]: !o[task.id] }))} style={{ ...S.btnSmall, background: isObsOpen ? "#dcfce7" : "#f1f5f9", color: "#16a34a", fontSize: 13 }}>💬</button>}
                 <button onClick={() => deleteTask(task.id)} style={{ background: "transparent", border: "none", cursor: "pointer", color: "#ef4444", fontSize: 16 }}>🗑</button>
               </div>
+              {task.done && isObsOpen && (
+                <div style={{ padding: "0 18px 14px", borderTop: "1px solid #dcfce7" }}>
+                  <input placeholder="Observação sobre a conclusão…" value={task.doneObs || ""} onChange={e => updateDoneObs(task.id, e.target.value)} style={{ ...S.input, fontSize: 13, background: "#f0fdf4", border: "1.5px solid #bbf7d0", marginTop: 10 }} />
+                </div>
+              )}
             </div>
           );
         })}
@@ -397,8 +387,82 @@ function TasksTab() {
   );
 }
 
+function StockTab() {
+  const [entries, setEntries, loading] = useFirebase("stock", DEFAULT_STOCK);
+  const [newEntry, setNewEntry] = useState({ name: "", qty: "", unit: "un", date: todayStr(), obs: "" });
+  const [filterFrom, setFilterFrom] = useState("");
+  const [filterTo, setFilterTo] = useState("");
+  const [search, setSearch] = useState("");
+  function addEntry() { if (!newEntry.name.trim() || !newEntry.qty) return; setEntries([...(entries || []), { ...newEntry, id: genId(), qty: parseFloat(newEntry.qty) }]); setNewEntry({ name: "", qty: "", unit: "un", date: todayStr(), obs: "" }); }
+  function deleteEntry(id) { setEntries((entries || []).filter(e => e.id !== id)); }
+  const all = entries || [];
+  const filtered = all.filter(e => { const matchSearch = e.name.toLowerCase().includes(search.toLowerCase()); const matchFrom = filterFrom ? e.date >= filterFrom : true; const matchTo = filterTo ? e.date <= filterTo : true; return matchSearch && matchFrom && matchTo; });
+  const summary = {};
+  filtered.forEach(e => { const key = `${e.name}__${e.unit}`; if (!summary[key]) summary[key] = { name: e.name, unit: e.unit, total: 0 }; summary[key].total += e.qty; });
+  const summaryList = Object.values(summary).sort((a, b) => a.name.localeCompare(b.name));
+  const byDay = {};
+  filtered.forEach(e => { if (!byDay[e.date]) byDay[e.date] = []; byDay[e.date].push(e); });
+  const days = Object.keys(byDay).sort((a, b) => b.localeCompare(a));
+  if (loading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <div style={S.card}>
+        <div style={S.cardHeader}>📦 Registar Material Utilizado</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, padding: "16px 20px" }}>
+          <div style={{ gridColumn: "1/-1" }}><label style={S.label}>Material *</label><input value={newEntry.name} onChange={e => setNewEntry(n => ({ ...n, name: e.target.value }))} style={S.input} placeholder="Ex: Cabo 1.5mm, Tubo corrugado…" /></div>
+          <div><label style={S.label}>Quantidade *</label><input type="number" min="0" step="0.1" value={newEntry.qty} onChange={e => setNewEntry(n => ({ ...n, qty: e.target.value }))} style={S.input} placeholder="0" /></div>
+          <div><label style={S.label}>Unidade</label><select value={newEntry.unit} onChange={e => setNewEntry(n => ({ ...n, unit: e.target.value }))} style={S.input}>{UNITS.map(u => <option key={u} value={u}>{u}</option>)}</select></div>
+          <div><label style={S.label}>Data</label><input type="date" value={newEntry.date} onChange={e => setNewEntry(n => ({ ...n, date: e.target.value }))} style={S.input} /></div>
+          <div><label style={S.label}>Observação</label><input value={newEntry.obs} onChange={e => setNewEntry(n => ({ ...n, obs: e.target.value }))} style={S.input} placeholder="Local, sala, etc…" /></div>
+        </div>
+        <div style={{ padding: "0 20px 16px" }}><button onClick={addEntry} style={S.btnPrimary}>+ Registar</button></div>
+      </div>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+        <div style={{ flex: 1, minWidth: 160 }}><label style={S.label}>Pesquisar</label><input placeholder="🔍 Nome do material…" value={search} onChange={e => setSearch(e.target.value)} style={S.input} /></div>
+        <div><label style={S.label}>De</label><input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} style={S.input} /></div>
+        <div><label style={S.label}>Até</label><input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} style={S.input} /></div>
+        {(filterFrom || filterTo || search) && <button onClick={() => { setFilterFrom(""); setFilterTo(""); setSearch(""); }} style={{ ...S.btnGhost, alignSelf: "flex-end" }}>✕ Limpar</button>}
+      </div>
+      {summaryList.length > 0 && (
+        <div style={S.card}>
+          <div style={S.cardHeader}>📊 Resumo{filterFrom || filterTo ? ` · ${filterFrom || "início"} → ${filterTo || "hoje"}` : " · Total geral"}</div>
+          <div style={{ padding: "12px 20px", display: "flex", flexWrap: "wrap", gap: 10 }}>
+            {summaryList.map(s => (
+              <div key={s.name + s.unit} style={{ background: "#eef2ff", border: "1.5px solid #c7d2fe", borderRadius: 10, padding: "8px 16px" }}>
+                <div style={{ fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 14, color: "#4338ca" }}>{s.name}</div>
+                <div style={{ fontFamily: "'Sora',sans-serif", fontSize: 13, color: "#6366f1", fontWeight: 600 }}>{s.total % 1 === 0 ? s.total : s.total.toFixed(2)} {s.unit}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {days.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 40, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>Nenhum registo encontrado.</div>
+      ) : days.map(day => (
+        <div key={day} style={S.card}>
+          <div style={{ ...S.cardHeader, display: "flex", alignItems: "center", gap: 10 }}>
+            <span>📅</span>
+            <span>{new Date(day + "T12:00:00").toLocaleDateString("pt-PT", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}</span>
+            <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>{byDay[day].length} registo(s)</span>
+          </div>
+          {byDay[day].map((e, idx) => (
+            <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 20px", borderBottom: idx < byDay[day].length - 1 ? "1px solid #f1f5f9" : "none" }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#6366f1", flexShrink: 0 }} />
+              <span style={{ flex: 1, fontFamily: "'Sora',sans-serif", fontSize: 14, fontWeight: 600, color: "#1e293b" }}>{e.name}</span>
+              <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 14, fontWeight: 700, color: "#6366f1", flexShrink: 0 }}>{e.qty % 1 === 0 ? e.qty : e.qty.toFixed(2)} {e.unit}</span>
+              {e.obs && <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#94a3b8", flexShrink: 0 }}>💬 {e.obs}</span>}
+              <button onClick={() => deleteEntry(e.id)} style={{ background: "transparent", border: "none", cursor: "pointer", color: "#fca5a5", fontSize: 14, flexShrink: 0 }}>🗑</button>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function App() {
   const [tab, setTab] = useState("material");
+  const TABS = [{ key: "material", label: "⚡ Checklist" }, { key: "tasks", label: "✅ Tarefas" }, { key: "stock", label: "📦 Material" }];
   return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(135deg,#f0f4ff 0%,#f8fafc 60%,#fff7ed 100%)" }}>
       <div style={{ background: "#1e293b", padding: "0 24px" }}>
@@ -413,16 +477,15 @@ export default function App() {
           <div style={{ color: "#475569", fontSize: 13, fontFamily: "'Sora',sans-serif" }}>{new Date().toLocaleDateString("pt-PT", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}</div>
         </div>
       </div>
-      <div style={{ background: "#fff", borderBottom: "1.5px solid #e2e8f0" }}>
+      <div style={{ background: "#fff", borderBottom: "1.5px solid #e2e8f0", overflowX: "auto" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex" }}>
-          {[{ key: "material", label: "⚡ Material & Checklist" }, { key: "tasks", label: "✅ Tarefas" }].map(t => (
-            <button key={t.key} onClick={() => setTab(t.key)} style={{ padding: "16px 28px", border: "none", background: "transparent", cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 600, fontSize: 14, color: tab === t.key ? "#6366f1" : "#94a3b8", borderBottom: tab === t.key ? "2.5px solid #6366f1" : "2.5px solid transparent", transition: "all 0.2s", marginBottom: -1 }}>{t.label}</button>
-          ))}
+          {TABS.map(t => (<button key={t.key} onClick={() => setTab(t.key)} style={{ padding: "16px 24px", border: "none", background: "transparent", cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 600, fontSize: 14, color: tab === t.key ? "#6366f1" : "#94a3b8", borderBottom: tab === t.key ? "2.5px solid #6366f1" : "2.5px solid transparent", transition: "all 0.2s", marginBottom: -1, whiteSpace: "nowrap" }}>{t.label}</button>))}
         </div>
       </div>
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 20px" }}>
         {tab === "material" && <MaterialTab />}
         {tab === "tasks" && <TasksTab />}
+        {tab === "stock" && <StockTab />}
       </div>
       <div style={{ textAlign: "center", padding: "20px", color: "#cbd5e1", fontSize: 12, fontFamily: "'Sora',sans-serif" }}>ObraControl · Dados sincronizados em tempo real via Firebase</div>
     </div>
@@ -438,3 +501,10 @@ const S = {
   cardHeader: { padding: "14px 20px", background: "#f8fafc", borderBottom: "1.5px solid #e2e8f0", fontWeight: 700, fontSize: 14, color: "#1e293b", fontFamily: "'Sora',sans-serif" },
   label: { display: "block", marginBottom: 6, fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5 },
 };
+          <input placeholder="Motivo / observação do problema…" value={item.obs || ""} onChange={e => onChange({ ...item, obs: e.target.value })} style={{ width: "100%", boxSizing: "border-box", marginTop: 8, padding: "7px 12px", border: "1.5px solid #fecaca", borderRadius: 8, fontFamily: "'Sora',sans-serif", fontSize: 13, background: "#fff7f7", color: "#7f1d1d", outline: "none" }} />
+          {item.obs && <div style={{ marginTop: 5, fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#dc2626", fontStyle: "italic" }}>⚠️ {item.obs}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
