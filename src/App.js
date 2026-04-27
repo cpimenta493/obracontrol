@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps */
 import { useState, useEffect, useCallback } from "react";
 import { db } from "./firebase";
 import { ref, onValue, set, off } from "firebase/database";
@@ -15,7 +16,6 @@ function useFirebase(path, fallback) {
       setLoading(false);
     });
     return () => off(r, "value", unsub);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path]);
   const save = useCallback((newData) => {
     setData(newData);
