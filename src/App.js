@@ -34,6 +34,24 @@ const INITIAL_TEMPLATE = [
   { id: "t8", text: "Inspeção final" },
 ];
 
+const INITIAL_CATALOG = [
+  { id: "m1", name: "Cabo 1.5mm", unit: "m" },
+  { id: "m2", name: "Cabo 2.5mm", unit: "m" },
+  { id: "m3", name: "Cabo 4mm", unit: "m" },
+  { id: "m4", name: "Cabo 6mm", unit: "m" },
+  { id: "m5", name: "Tubo corrugado 16mm", unit: "m" },
+  { id: "m6", name: "Tubo corrugado 20mm", unit: "m" },
+  { id: "m7", name: "Tubo corrugado 25mm", unit: "m" },
+  { id: "m8", name: "Caixa de encastrar", unit: "un" },
+  { id: "m9", name: "Tomada 16A", unit: "un" },
+  { id: "m10", name: "Interruptor simples", unit: "un" },
+  { id: "m11", name: "Disjuntor 10A", unit: "un" },
+  { id: "m12", name: "Disjuntor 16A", unit: "un" },
+  { id: "m13", name: "Disjuntor 20A", unit: "un" },
+  { id: "m14", name: "Diferencial 25A", unit: "un" },
+  { id: "m15", name: "Fita isoladora", unit: "rolo" },
+];
+
 function makeChecklist(template) {
   return template.map(t => ({ id: genId(), text: t.text, status: "pending", obs: "" }));
 }
@@ -49,7 +67,9 @@ const STATUS = {
 };
 const UNITS = ["un", "m", "m²", "m³", "kg", "L", "rolo", "cx", "saco"];
 function todayStr() { return new Date().toISOString().slice(0, 10); }
+function waLink(text) { return `https://wa.me/?text=${encodeURIComponent(text)}`; }
 
+// ─── CHECKLIST ITEM ───────────────────────────────────────────
 function ChecklistItem({ item, onChange, onRemove }) {
   const [showObs, setShowObs] = useState(item.status === "incomplete");
   const st = STATUS[item.status] || STATUS.pending;
@@ -121,6 +141,65 @@ function Checklist({ checklist, onUpdate }) {
   );
 }
 
+// ─── CATALOG MODAL ────────────────────────────────────────────
+function CatalogModal({ catalog, onSave, onClose }) {
+  const [items, setItems] = useState(catalog.map(c => ({ ...c })));
+  const [newName, setNewName] = useState("");
+  const [newUnit, setNewUnit] = useState("un");
+  const [adding, setAdding] = useState(false);
+  function removeItem(id) { setItems(items.filter(i => i.id !== id)); }
+  function updateItem(id, field, val) { setItems(items.map(i => i.id === id ? { ...i, [field]: val } : i)); }
+  function addItem() { if (!newName.trim()) return; setItems([...items, { id: genId(), name: newName.trim(), unit: newUnit }]); setNewName(""); setNewUnit("un"); setAdding(false); }
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(15,23,42,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
+      <div style={{ background: "#fff", borderRadius: 20, width: "100%", maxWidth: 540, boxShadow: "0 24px 60px rgba(0,0,0,0.18)", overflow: "hidden", maxHeight: "90vh", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
+        <div style={{ background: "#1e293b", padding: "20px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 20 }}>📦</span>
+            <div>
+              <div style={{ color: "#fff", fontWeight: 800, fontSize: 16, fontFamily: "'Sora',sans-serif" }}>Catálogo de Materiais</div>
+              <div style={{ color: "#64748b", fontSize: 12, fontFamily: "'Sora',sans-serif" }}>Gere a lista de materiais disponíveis</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "#64748b", fontSize: 22, cursor: "pointer" }}>✕</button>
+        </div>
+        <div style={{ overflowY: "auto", flex: 1, padding: "20px 24px" }}>
+          <div style={{ marginBottom: 12, fontFamily: "'Sora',sans-serif", fontSize: 13, color: "#64748b" }}>Adiciona, edita ou remove materiais da lista de seleção.</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {items.map(item => (
+              <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "#f8fafc" }}>
+                <input value={item.name} onChange={e => updateItem(item.id, "name", e.target.value)} style={{ ...S.input, flex: 1, fontSize: 13, padding: "6px 10px" }} />
+                <select value={item.unit} onChange={e => updateItem(item.id, "unit", e.target.value)} style={{ ...S.input, width: 70, fontSize: 13, padding: "6px 8px" }}>
+                  {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                </select>
+                <button onClick={() => removeItem(item.id)} style={{ background: "transparent", border: "none", cursor: "pointer", color: "#fca5a5", fontSize: 16, flexShrink: 0 }}>🗑</button>
+              </div>
+            ))}
+          </div>
+          {adding ? (
+            <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
+              <input autoFocus value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addItem(); if (e.key === "Escape") setAdding(false); }} placeholder="Nome do material…" style={{ ...S.input, flex: 1, fontSize: 13 }} />
+              <select value={newUnit} onChange={e => setNewUnit(e.target.value)} style={{ ...S.input, width: 80, fontSize: 13 }}>
+                {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+              </select>
+              <button onClick={addItem} style={{ ...S.btnPrimary, padding: "8px 14px", fontSize: 13, flexShrink: 0 }}>+</button>
+              <button onClick={() => setAdding(false)} style={{ ...S.btnGhost, padding: "8px 10px", fontSize: 13, flexShrink: 0 }}>✕</button>
+            </div>
+          ) : (
+            <button onClick={() => setAdding(true)} style={{ marginTop: 12, background: "transparent", border: "1.5px dashed #a5b4fc", borderRadius: 9, padding: "8px 14px", cursor: "pointer", color: "#6366f1", fontFamily: "'Sora',sans-serif", fontSize: 13, fontWeight: 600, width: "100%", textAlign: "left" }}>+ Novo material</button>
+          )}
+        </div>
+        <div style={{ padding: "16px 24px", borderTop: "1.5px solid #e2e8f0", display: "flex", gap: 10, background: "#f8fafc" }}>
+          <button onClick={() => onSave(items)} style={S.btnPrimary}>✓ Guardar catálogo</button>
+          <button onClick={onClose} style={S.btnGhost}>Cancelar</button>
+          <span style={{ marginLeft: "auto", fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#94a3b8", alignSelf: "center" }}>{items.length} material(ais)</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── SETTINGS MODAL ───────────────────────────────────────────
 function SettingsModal({ template, onSave, onClose }) {
   const [items, setItems] = useState(template.map(t => ({ ...t })));
   const [newText, setNewText] = useState("");
@@ -180,6 +259,7 @@ function SettingsModal({ template, onSave, onClose }) {
   );
 }
 
+// ─── MATERIAL TAB ─────────────────────────────────────────────
 function MaterialTab() {
   const [rooms, setRooms, roomsLoading] = useFirebase("rooms", DEFAULT_ROOMS);
   const [template, setTemplate, tplLoading] = useFirebase("template", INITIAL_TEMPLATE);
@@ -230,23 +310,19 @@ function MaterialTab() {
         </div>
       </div>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <input placeholder="🔍 Pesquisar sala ou material…" value={search} onChange={e => setSearch(e.target.value)} style={{ ...S.input, flex: 1, minWidth: 180 }} />
-        <button onClick={() => setShowSettings(true)} style={{ ...S.btnGhost, display: "flex", alignItems: "center", gap: 6, border: "1.5px solid #c7d2fe", color: "#6366f1" }}>⚙️ Configurar checklist</button>
+        <input placeholder="🔍 Pesquisar sala…" value={search} onChange={e => setSearch(e.target.value)} style={{ ...S.input, flex: 1, minWidth: 180 }} />
+        <button onClick={() => setShowSettings(true)} style={{ ...S.btnGhost, display: "flex", alignItems: "center", gap: 6, border: "1.5px solid #c7d2fe", color: "#6366f1" }}>⚙️ Configurar</button>
         <button onClick={() => setAdding(true)} style={S.btnPrimary}>+ Nova Sala</button>
-      </div>
-      <div style={{ background: "#eef2ff", border: "1.5px solid #c7d2fe", borderRadius: 12, padding: "12px 16px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, color: "#6366f1" }}>Template atual:</span>
-        {template.length === 0 ? <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#94a3b8" }}>Nenhum ponto configurado</span> : template.map(t => <span key={t.id} style={{ padding: "2px 10px", borderRadius: 99, background: "#c7d2fe", color: "#4338ca", fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 600 }}>{t.text}</span>)}
       </div>
       {adding && (
         <div style={S.card}>
           <div style={S.cardHeader}>Nova Sala</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, padding: "16px 20px" }}>
             <div style={{ gridColumn: "1/-1" }}><label style={S.label}>Nome da Sala *</label><input value={newRoom.name} onChange={e => setNewRoom(n => ({ ...n, name: e.target.value }))} style={S.input} placeholder="Ex: Quarto 3" /></div>
-            <div><label style={S.label}>Material Utilizado</label><input value={newRoom.material} onChange={e => setNewRoom(n => ({ ...n, material: e.target.value }))} style={S.input} placeholder="Ex: Cabo 1.5mm…" /></div>
+            <div><label style={S.label}>Material</label><input value={newRoom.material} onChange={e => setNewRoom(n => ({ ...n, material: e.target.value }))} style={S.input} placeholder="Ex: Cabo 1.5mm…" /></div>
             <div><label style={S.label}>Observações</label><input value={newRoom.obs} onChange={e => setNewRoom(n => ({ ...n, obs: e.target.value }))} style={S.input} placeholder="Notas…" /></div>
           </div>
-          <div style={{ padding: "0 20px 4px", color: "#6366f1", fontSize: 12, fontFamily: "'Sora',sans-serif", fontWeight: 600 }}>✓ Serão adicionados {template.length} ponto(s) da checklist configurada.</div>
+          <div style={{ padding: "0 20px 4px", color: "#6366f1", fontSize: 12, fontFamily: "'Sora',sans-serif", fontWeight: 600 }}>✓ {template.length} ponto(s) serão adicionados.</div>
           <div style={{ display: "flex", gap: 10, padding: "12px 20px 16px" }}><button onClick={addRoom} style={S.btnPrimary}>Guardar</button><button onClick={() => setAdding(false)} style={S.btnGhost}>Cancelar</button></div>
         </div>
       )}
@@ -272,7 +348,7 @@ function MaterialTab() {
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                  {hasIssues && <span style={{ padding: "3px 10px", borderRadius: 99, background: "#fee2e2", color: "#dc2626", fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 700 }}>⚠️ {incomplete} incompleto(s)</span>}
+                  {hasIssues && <span style={{ padding: "3px 10px", borderRadius: 99, background: "#fee2e2", color: "#dc2626", fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 700 }}>⚠️ {incomplete}</span>}
                   <span style={{ padding: "4px 12px", borderRadius: 99, fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, background: hasIssues ? "#fee2e2" : allDone ? "#dcfce7" : pct > 0 ? "#fef3c7" : "#f1f5f9", color: hasIssues ? "#dc2626" : allDone ? "#16a34a" : pct > 0 ? "#d97706" : "#94a3b8" }}>⚡ {done}/{total}</span>
                   <button onClick={e => { e.stopPropagation(); setEditing(editing === room.id ? null : room.id); }} style={{ ...S.btnSmall, background: "transparent", border: "none" }}>✏️</button>
                   <button onClick={e => { e.stopPropagation(); deleteRoom(room.id); }} style={{ ...S.btnSmall, background: "transparent", border: "none", color: "#ef4444" }}>🗑</button>
@@ -283,9 +359,9 @@ function MaterialTab() {
                 <>
                   {editing === room.id && (
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, padding: "14px 20px", background: "#fff", borderBottom: "1px solid #f1f5f9" }}>
-                      <div><label style={S.label}>Nome da Sala</label><input defaultValue={room.name} onBlur={e => saveEdit(room.id, "name", e.target.value)} style={{ ...S.input, fontSize: 13 }} /></div>
+                      <div><label style={S.label}>Nome</label><input defaultValue={room.name} onBlur={e => saveEdit(room.id, "name", e.target.value)} style={{ ...S.input, fontSize: 13 }} /></div>
                       <div />
-                      <div><label style={S.label}>Material Utilizado</label><input defaultValue={room.material} onBlur={e => saveEdit(room.id, "material", e.target.value)} style={{ ...S.input, fontSize: 13 }} /></div>
+                      <div><label style={S.label}>Material</label><input defaultValue={room.material} onBlur={e => saveEdit(room.id, "material", e.target.value)} style={{ ...S.input, fontSize: 13 }} /></div>
                       <div><label style={S.label}>Observações</label><input defaultValue={room.obs} onBlur={e => saveEdit(room.id, "obs", e.target.value)} style={{ ...S.input, fontSize: 13 }} /></div>
                       <div style={{ gridColumn: "1/-1" }}><button onClick={() => setEditing(null)} style={{ ...S.btnPrimary, fontSize: 13, padding: "8px 18px" }}>✓ Guardar</button></div>
                     </div>
@@ -308,12 +384,13 @@ function MaterialTab() {
   );
 }
 
+// ─── TASKS TAB ────────────────────────────────────────────────
 function TasksTab() {
   const [tasks, setTasks, loading] = useFirebase("tasks", DEFAULT_TASKS);
   const [newTask, setNewTask] = useState({ text: "", priority: "media", date: "" });
   const [filter, setFilter] = useState("todas");
   const [obsOpen, setObsOpen] = useState({});
-  function addTask() { if (!newTask.text.trim()) return; setTasks([{ ...newTask, id: genId(), done: false, doneAt: null, doneObs: "" }, ...(tasks || [])]); setNewTask({ text: "", priority: "media", date: "" }); }
+  function addTask() { if (!newTask.text.trim()) return; const task = { ...newTask, id: genId(), done: false, doneAt: null, doneObs: "" }; setTasks([task, ...(tasks || [])]); setNewTask({ text: "", priority: "media", date: "" }); }
   function toggleDone(id) { setTasks((tasks || []).map(t => { if (t.id !== id) return t; const nowDone = !t.done; return { ...t, done: nowDone, doneAt: nowDone ? new Date().toISOString() : null, doneObs: nowDone ? (t.doneObs || "") : "" }; })); }
   function updateDoneObs(id, val) { setTasks((tasks || []).map(t => t.id === id ? { ...t, doneObs: val } : t)); }
   function deleteTask(id) { setTasks((tasks || []).filter(t => t.id !== id)); }
@@ -344,7 +421,14 @@ function TasksTab() {
           <select value={newTask.priority} onChange={e => setNewTask(n => ({ ...n, priority: e.target.value }))} style={S.input}>{PRIORITIES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}</select>
           <input type="date" value={newTask.date} onChange={e => setNewTask(n => ({ ...n, date: e.target.value }))} style={S.input} />
         </div>
-        <div style={{ padding: "0 20px 16px" }}><button onClick={addTask} style={S.btnPrimary}>+ Adicionar Tarefa</button></div>
+        <div style={{ padding: "0 20px 16px", display: "flex", gap: 10, alignItems: "center" }}>
+          <button onClick={addTask} style={S.btnPrimary}>+ Adicionar Tarefa</button>
+          {newTask.text.trim() && (
+            <a href={waLink(`🏗️ Nova tarefa na obra:\n"${newTask.text}"\nPrioridade: ${PRIORITIES.find(p => p.value === newTask.priority)?.label}${newTask.date ? `\nData: ${newTask.date}` : ""}\n\nhttps://obracontrol-beta.vercel.app`)} target="_blank" rel="noreferrer" style={{ padding: "9px 16px", background: "#25d366", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, textDecoration: "none", display: "flex", alignItems: "center", gap: 6 }}>
+              📲 WhatsApp
+            </a>
+          )}
+        </div>
       </div>
       <div style={{ display: "flex", gap: 8 }}>
         {["todas", "pendentes", "concluídas"].map(f => (<button key={f} onClick={() => setFilter(f)} style={{ ...S.btnGhost, background: filter === f ? "#1e293b" : "transparent", color: filter === f ? "#fff" : "#64748b", textTransform: "capitalize" }}>{f}</button>))}
@@ -367,12 +451,12 @@ function TasksTab() {
                 </div>
                 <span style={{ padding: "3px 10px", borderRadius: 99, background: pri?.color + "22", color: pri?.color, fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{pri?.label}</span>
                 {task.date && <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#94a3b8", flexShrink: 0 }}>📅 {task.date}</span>}
-                {task.done && <button onClick={() => setObsOpen(o => ({ ...o, [task.id]: !o[task.id] }))} style={{ ...S.btnSmall, background: isObsOpen ? "#dcfce7" : "#f1f5f9", color: "#16a34a", fontSize: 13 }} title="Observação">💬</button>}
+                {task.done && <button onClick={() => setObsOpen(o => ({ ...o, [task.id]: !o[task.id] }))} style={{ ...S.btnSmall, background: isObsOpen ? "#dcfce7" : "#f1f5f9", color: "#16a34a", fontSize: 13 }}>💬</button>}
                 <button onClick={() => deleteTask(task.id)} style={{ background: "transparent", border: "none", cursor: "pointer", color: "#ef4444", fontSize: 16 }}>🗑</button>
               </div>
               {task.done && isObsOpen && (
                 <div style={{ padding: "0 18px 14px", borderTop: "1px solid #dcfce7" }}>
-                  <input placeholder="Observação sobre a conclusão (opcional)…" value={task.doneObs || ""} onChange={e => updateDoneObs(task.id, e.target.value)} style={{ ...S.input, fontSize: 13, background: "#f0fdf4", border: "1.5px solid #bbf7d0", marginTop: 10 }} />
+                  <input placeholder="Observação sobre a conclusão…" value={task.doneObs || ""} onChange={e => updateDoneObs(task.id, e.target.value)} style={{ ...S.input, fontSize: 13, background: "#f0fdf4", border: "1.5px solid #bbf7d0", marginTop: 10 }} />
                 </div>
               )}
             </div>
@@ -383,14 +467,29 @@ function TasksTab() {
   );
 }
 
+// ─── STOCK TAB ────────────────────────────────────────────────
 function StockTab() {
   const [entries, setEntries, loading] = useFirebase("stock", DEFAULT_STOCK);
-  const [newEntry, setNewEntry] = useState({ name: "", qty: "", unit: "un", date: todayStr(), obs: "" });
+  const [catalog, setCatalog, catLoading] = useFirebase("catalog", INITIAL_CATALOG);
+  const [showCatalog, setShowCatalog] = useState(false);
+  const [selectedId, setSelectedId] = useState("");
+  const [qty, setQty] = useState("");
+  const [date, setDate] = useState(todayStr());
+  const [obs, setObs] = useState("");
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
   const [search, setSearch] = useState("");
-  function addEntry() { if (!newEntry.name.trim() || !newEntry.qty) return; setEntries([...(entries || []), { ...newEntry, id: genId(), qty: parseFloat(newEntry.qty) }]); setNewEntry({ name: "", qty: "", unit: "un", date: todayStr(), obs: "" }); }
+
+  const cat = catalog || [];
+  const selected = cat.find(c => c.id === selectedId);
+
+  function addEntry() {
+    if (!selected || !qty) return;
+    setEntries([...(entries || []), { id: genId(), name: selected.name, unit: selected.unit, qty: parseFloat(qty), date, obs }]);
+    setQty(""); setObs("");
+  }
   function deleteEntry(id) { setEntries((entries || []).filter(e => e.id !== id)); }
+
   const all = entries || [];
   const filtered = all.filter(e => {
     const matchSearch = e.name.toLowerCase().includes(search.toLowerCase());
@@ -404,26 +503,66 @@ function StockTab() {
   const byDay = {};
   filtered.forEach(e => { if (!byDay[e.date]) byDay[e.date] = []; byDay[e.date].push(e); });
   const days = Object.keys(byDay).sort((a, b) => b.localeCompare(a));
-  if (loading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
+
+  if (loading || catLoading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {showCatalog && <CatalogModal catalog={cat} onSave={c => { setCatalog(c); setShowCatalog(false); }} onClose={() => setShowCatalog(false)} />}
+
       <div style={S.card}>
-        <div style={S.cardHeader}>📦 Registar Material Utilizado</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, padding: "16px 20px" }}>
-          <div style={{ gridColumn: "1/-1" }}><label style={S.label}>Material *</label><input value={newEntry.name} onChange={e => setNewEntry(n => ({ ...n, name: e.target.value }))} style={S.input} placeholder="Ex: Cabo 1.5mm, Tubo corrugado…" /></div>
-          <div><label style={S.label}>Quantidade *</label><input type="number" min="0" step="0.1" value={newEntry.qty} onChange={e => setNewEntry(n => ({ ...n, qty: e.target.value }))} style={S.input} placeholder="0" /></div>
-          <div><label style={S.label}>Unidade</label><select value={newEntry.unit} onChange={e => setNewEntry(n => ({ ...n, unit: e.target.value }))} style={S.input}>{UNITS.map(u => <option key={u} value={u}>{u}</option>)}</select></div>
-          <div><label style={S.label}>Data</label><input type="date" value={newEntry.date} onChange={e => setNewEntry(n => ({ ...n, date: e.target.value }))} style={S.input} /></div>
-          <div><label style={S.label}>Observação</label><input value={newEntry.obs} onChange={e => setNewEntry(n => ({ ...n, obs: e.target.value }))} style={S.input} placeholder="Local, sala, etc…" /></div>
+        <div style={{ ...S.cardHeader, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span>📦 Registar Material Utilizado</span>
+          <button onClick={() => setShowCatalog(true)} style={{ ...S.btnGhost, fontSize: 12, padding: "5px 12px", border: "1.5px solid #c7d2fe", color: "#6366f1" }}>⚙️ Gerir catálogo</button>
         </div>
-        <div style={{ padding: "0 20px 16px" }}><button onClick={addEntry} style={S.btnPrimary}>+ Registar</button></div>
+        <div style={{ padding: "16px 20px" }}>
+          <label style={S.label}>Selecionar material *</label>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+            {cat.length === 0 && <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 13, color: "#94a3b8" }}>Nenhum material no catálogo. Clica em "Gerir catálogo" para adicionar.</span>}
+            {cat.map(item => (
+              <button key={item.id} onClick={() => setSelectedId(item.id)} style={{
+                padding: "7px 14px", borderRadius: 99, border: `2px solid ${selectedId === item.id ? "#6366f1" : "#e2e8f0"}`,
+                background: selectedId === item.id ? "#6366f1" : "#f8fafc",
+                color: selectedId === item.id ? "#fff" : "#475569",
+                fontFamily: "'Sora',sans-serif", fontSize: 13, fontWeight: 600, cursor: "pointer",
+                display: "flex", alignItems: "center", gap: 6, transition: "all 0.2s",
+              }}>
+                {item.name}
+                <span style={{ opacity: 0.7, fontSize: 11 }}>{item.unit}</span>
+              </button>
+            ))}
+          </div>
+
+          {selected && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+              <div>
+                <label style={S.label}>Quantidade *</label>
+                <input type="number" min="0" step="0.1" value={qty} onChange={e => setQty(e.target.value)} style={S.input} placeholder="0" />
+              </div>
+              <div>
+                <label style={S.label}>Unidade</label>
+                <input value={selected.unit} readOnly style={{ ...S.input, background: "#f1f5f9", color: "#94a3b8" }} />
+              </div>
+              <div>
+                <label style={S.label}>Data</label>
+                <input type="date" value={date} onChange={e => setDate(e.target.value)} style={S.input} />
+              </div>
+              <div style={{ gridColumn: "1/-1" }}>
+                <label style={S.label}>Observação</label>
+                <input value={obs} onChange={e => setObs(e.target.value)} style={S.input} placeholder="Local, sala, etc…" />
+              </div>
+            </div>
+          )}
+        </div>
+        {selected && (
+          <div style={{ padding: "0 20px 16px" }}>
+            <button onClick={addEntry} style={S.btnPrimary}>+ Registar {selected.name}</button>
+          </div>
+        )}
       </div>
 
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
-        <div style={{ flex: 1, minWidth: 160 }}>
-          <label style={S.label}>Pesquisar material</label>
-          <input placeholder="🔍 Nome do material…" value={search} onChange={e => setSearch(e.target.value)} style={S.input} />
-        </div>
+        <div style={{ flex: 1, minWidth: 160 }}><label style={S.label}>Pesquisar</label><input placeholder="🔍 Nome do material…" value={search} onChange={e => setSearch(e.target.value)} style={S.input} /></div>
         <div><label style={S.label}>De</label><input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} style={S.input} /></div>
         <div><label style={S.label}>Até</label><input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} style={S.input} /></div>
         {(filterFrom || filterTo || search) && <button onClick={() => { setFilterFrom(""); setFilterTo(""); setSearch(""); }} style={{ ...S.btnGhost, alignSelf: "flex-end" }}>✕ Limpar</button>}
@@ -431,7 +570,7 @@ function StockTab() {
 
       {summaryList.length > 0 && (
         <div style={S.card}>
-          <div style={S.cardHeader}>📊 Resumo do período{filterFrom || filterTo ? ` · ${filterFrom || "início"} → ${filterTo || "hoje"}` : " · Total geral"}</div>
+          <div style={S.cardHeader}>📊 Resumo{filterFrom || filterTo ? ` · ${filterFrom || "início"} → ${filterTo || "hoje"}` : " · Total geral"}</div>
           <div style={{ padding: "12px 20px", display: "flex", flexWrap: "wrap", gap: 10 }}>
             {summaryList.map(s => (
               <div key={s.name + s.unit} style={{ background: "#eef2ff", border: "1.5px solid #c7d2fe", borderRadius: 10, padding: "8px 16px" }}>
@@ -467,6 +606,7 @@ function StockTab() {
   );
 }
 
+// ─── MAIN ─────────────────────────────────────────────────────
 export default function App() {
   const [tab, setTab] = useState("material");
   const TABS = [{ key: "material", label: "⚡ Checklist" }, { key: "tasks", label: "✅ Tarefas" }, { key: "stock", label: "📦 Material" }];
