@@ -563,15 +563,46 @@ function PhotosTab() {
 // ─── TASKS TAB ────────────────────────────────────────────────
 function TasksTab() {
   const [tasks, setTasks, loading] = useFirebase("tasks", DEF_TASKS);
-  const [newTask, setNewTask] = useState({ text: "", priority: "media", date: "" });
-  const [filter, setFilter] = useState("todas"); const [obsOpen, setObsOpen] = useState({});
-  function addTask() { if (!newTask.text.trim()) return; setTasks([{ ...newTask, id: genId(), done: false, doneAt: null, doneObs: "" }, ...(tasks || [])]); setNewTask({ text: "", priority: "media", date: "" }); }
+  const [newTask, setNewTask] = useState({ text: "", priority: "media", date: "", tags: [] });
+  const [filter, setFilter] = useState("todas");
+  const [filterTag, setFilterTag] = useState("");
+  const [obsOpen, setObsOpen] = useState({});
+  const [dragId, setDragId] = useState(null);
+  const [dragOver, setDragOver] = useState(null);
+
+  function addTask() {
+    if (!newTask.text.trim()) return;
+    setTasks([{ ...newTask, id: genId(), done: false, doneAt: null, doneObs: "" }, ...(tasks || [])]);
+    setNewTask({ text: "", priority: "media", date: "", tags: [] });
+  }
   function toggleDone(id) { setTasks((tasks || []).map(t => { if (t.id !== id) return t; const nd = !t.done; return { ...t, done: nd, doneAt: nd ? new Date().toISOString() : null, doneObs: nd ? (t.doneObs || "") : "" }; })); }
   function updateDoneObs(id, val) { setTasks((tasks || []).map(t => t.id === id ? { ...t, doneObs: val } : t)); }
+  function toggleNewTag(val) { setNewTask(n => ({ ...n, tags: (n.tags || []).includes(val) ? (n.tags || []).filter(t => t !== val) : [...(n.tags || []), val] })); }
+
+  // Drag-and-drop reorder
+  function onDragStart(id) { setDragId(id); }
+  function onDragOver(e, id) { e.preventDefault(); setDragOver(id); }
+  function onDrop(id) {
+    if (!dragId || dragId === id) { setDragId(null); setDragOver(null); return; }
+    const arr = [...(tasks || [])];
+    const fromIdx = arr.findIndex(t => t.id === dragId);
+    const toIdx = arr.findIndex(t => t.id === id);
+    const [moved] = arr.splice(fromIdx, 1);
+    arr.splice(toIdx, 0, moved);
+    setTasks(arr);
+    setDragId(null); setDragOver(null);
+  }
+
   const allTasks = tasks || [];
-  const filtered = allTasks.filter(t => { if (filter === "pendentes") return !t.done; if (filter === "concluídas") return t.done; return true; });
+  const filtered = allTasks.filter(t => {
+    const matchFilter = filter === "pendentes" ? !t.done : filter === "concluídas" ? t.done : true;
+    const matchTag = filterTag ? (t.tags || []).includes(filterTag) : true;
+    return matchFilter && matchTag;
+  });
   const counts = { total: allTasks.length, done: allTasks.filter(t => t.done).length };
+
   if (loading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -586,6 +617,8 @@ function TasksTab() {
           <span style={{ fontFamily: "'Sora',sans-serif", fontWeight: 700, color: "#22c55e", fontSize: 14 }}>{counts.total ? Math.round((counts.done / counts.total) * 100) : 0}%</span>
         </div>
       </div>
+
+      {/* Nova tarefa */}
       <div style={S.card}>
         <div style={S.cardHeader}>Nova Tarefa</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 12, padding: "16px 20px" }}>
@@ -593,27 +626,73 @@ function TasksTab() {
           <select value={newTask.priority} onChange={e => setNewTask(n => ({ ...n, priority: e.target.value }))} style={S.input}>{PRIORITIES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}</select>
           <input type="date" value={newTask.date} onChange={e => setNewTask(n => ({ ...n, date: e.target.value }))} style={S.input} />
         </div>
+        {/* Tags */}
+        <div style={{ padding: "0 20px 12px" }}>
+          <label style={S.label}>Etiquetas</label>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+            {TAGS.map(tag => {
+              const active = (newTask.tags || []).includes(tag.value);
+              return (
+                <button key={tag.value} onClick={() => toggleNewTag(tag.value)} style={{ padding: "4px 12px", borderRadius: 99, border: `2px solid ${active ? tag.color : "#e2e8f0"}`, background: active ? tag.color : "transparent", color: active ? "#fff" : "#64748b", fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                  {tag.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
         <div style={{ padding: "0 20px 16px", display: "flex", gap: 10, alignItems: "center" }}>
           <button onClick={addTask} style={S.btnPrimary}>+ Adicionar</button>
           {newTask.text.trim() && (<a href={waLink(`🏗️ Nova tarefa:\n"${newTask.text}"\nPrioridade: ${PRIORITIES.find(p => p.value === newTask.priority)?.label}${newTask.date ? `\nData: ${newTask.date}` : ""}\n\nhttps://obracontrol-beta.vercel.app`)} target="_blank" rel="noreferrer" style={{ padding: "9px 14px", background: "#25d366", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>📲 WhatsApp</a>)}
         </div>
       </div>
-      <div style={{ display: "flex", gap: 8 }}>
+
+      {/* Filtros */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {["todas", "pendentes", "concluídas"].map(f => (<button key={f} onClick={() => setFilter(f)} style={{ ...S.btnGhost, background: filter === f ? "#1e293b" : "transparent", color: filter === f ? "#fff" : "#64748b", textTransform: "capitalize" }}>{f}</button>))}
+        <div style={{ width: 1, background: "#e2e8f0", margin: "0 4px" }} />
+        <button onClick={() => setFilterTag("")} style={{ ...S.btnGhost, background: !filterTag ? "#eef2ff" : "transparent", color: !filterTag ? "#6366f1" : "#94a3b8", fontSize: 12 }}>Todas as etiquetas</button>
+        {TAGS.map(tag => (
+          <button key={tag.value} onClick={() => setFilterTag(filterTag === tag.value ? "" : tag.value)} style={{ padding: "6px 12px", borderRadius: 99, border: `1.5px solid ${filterTag === tag.value ? tag.color : "#e2e8f0"}`, background: filterTag === tag.value ? tag.color : "transparent", color: filterTag === tag.value ? "#fff" : "#64748b", fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+            {tag.label}
+          </button>
+        ))}
       </div>
+
+      <div style={{ color: "#94a3b8", fontSize: 12, fontFamily: "'Sora',sans-serif" }}>↕️ Arrasta as tarefas para reordenar</div>
+
+      {/* Lista de tarefas */}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {filtered.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>Nenhuma tarefa.</div>}
         {filtered.map(task => {
           const pri = PRIORITIES.find(p => p.value === task.priority);
           const isOpen = obsOpen[task.id];
+          const taskTags = TAGS.filter(t => (task.tags || []).includes(t.value));
+          const isDragging = dragId === task.id;
+          const isOver = dragOver === task.id;
           return (
-            <div key={task.id} style={{ ...S.card, padding: 0, border: task.done ? "1.5px solid #bbf7d0" : "1.5px solid #e2e8f0" }}>
+            <div
+              key={task.id}
+              draggable
+              onDragStart={() => onDragStart(task.id)}
+              onDragOver={e => onDragOver(e, task.id)}
+              onDrop={() => onDrop(task.id)}
+              onDragEnd={() => { setDragId(null); setDragOver(null); }}
+              style={{ ...S.card, padding: 0, border: isOver ? "2px dashed #6366f1" : task.done ? "1.5px solid #bbf7d0" : "1.5px solid #e2e8f0", opacity: isDragging ? 0.4 : 1, transition: "opacity 0.2s, border 0.15s", cursor: "grab" }}
+            >
               <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px" }}>
+                <span style={{ color: "#cbd5e1", fontSize: 16, cursor: "grab", flexShrink: 0 }}>⠿</span>
                 <button onClick={() => toggleDone(task.id)} style={{ width: 24, height: 24, borderRadius: "50%", border: `2.5px solid ${task.done ? "#22c55e" : "#cbd5e1"}`, background: task.done ? "#22c55e" : "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   {task.done && <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
                 </button>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontFamily: "'Sora',sans-serif", fontWeight: 500, color: "#1e293b", textDecoration: task.done ? "line-through" : "none", fontSize: 14 }}>{task.text}</div>
+                  {taskTags.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 5 }}>
+                      {taskTags.map(tag => (
+                        <span key={tag.value} style={{ padding: "2px 8px", borderRadius: 99, background: tag.color + "22", color: tag.color, fontFamily: "'Sora',sans-serif", fontSize: 10, fontWeight: 700 }}>{tag.label}</span>
+                      ))}
+                    </div>
+                  )}
                   {task.done && task.doneAt && <div style={{ fontSize: 11, color: "#22c55e", fontFamily: "'Sora',sans-serif", marginTop: 2 }}>✓ {new Date(task.doneAt).toLocaleDateString("pt-PT", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</div>}
                   {task.done && task.doneObs && <div style={{ fontSize: 12, color: "#16a34a", fontFamily: "'Sora',sans-serif", fontStyle: "italic", marginTop: 2 }}>💬 {task.doneObs}</div>}
                 </div>
@@ -1052,49 +1131,228 @@ function PinLock({ onUnlock }) {
   );
 }
 
-// ─── MAIN ─────────────────────────────────────────────────────
-export default function App() {
-  const [unlocked, setUnlocked] = useState(() => sessionStorage.getItem("obra_unlocked") === "1");
-  const [tab, setTab] = useState("checklist");
-  const TABS = [{ key: "checklist", label: "⚡ Checklist" }, { key: "tasks", label: "✅ Tarefas" }, { key: "stock", label: "📦 Material" }, { key: "photos", label: "📷 Fotos" }, { key: "attendance", label: "👷 Ponto" }, { key: "settings", label: "⚙️ Config." }];
+// ─── DASHBOARD TAB ────────────────────────────────────────────
+function DashboardTab({ dark, setTab }) {
+  const [rooms,,rL] = useFirebase("rooms2", []);
+  const [tasks,,tL] = useFirebase("tasks", []);
+  const [catalog,,cL] = useFirebase("catalog", INITIAL_CATALOG);
+  const [inventory,,iL] = useFirebase("inventory", []);
+  const [stock,,sL] = useFirebase("stock", []);
+  const [attendance,,aL] = useFirebase("attendance", []);
+  const [workers,,wL] = useFirebase("workers", []);
 
-  if (!unlocked) return <PinLock onUnlock={() => setUnlocked(true)} />;
+  const loading = rL || tL || cL || iL || sL || aL || wL;
+
+  // Checklist stats
+  const allCl = (rooms || []).flatMap(r => (r.subrooms || []).flatMap(s => s.checklist || []));
+  const clDone = allCl.filter(c => c.status === "done").length;
+  const clInc = allCl.filter(c => c.status === "incomplete").length;
+  const clTotal = allCl.length;
+  const clPct = clTotal ? Math.round((clDone / clTotal) * 100) : 0;
+
+  // Tasks stats
+  const allTasks = tasks || [];
+  const tasksDone = allTasks.filter(t => t.done).length;
+  const tasksPending = allTasks.filter(t => !t.done).length;
+
+  // Stock crítico
+  const cat = catalog || []; const inv = inventory || []; const used = stock || [];
+  const stockMap = {};
+  inv.forEach(i => { stockMap[i.materialId] = (stockMap[i.materialId] || 0) + i.qty; });
+  used.forEach(e => { if (e.materialId) stockMap[e.materialId] = (stockMap[e.materialId] || 0) - e.qty; });
+  const stockCritical = cat.filter(item => (stockMap[item.id] || 0) <= 0);
+  const stockLow = cat.filter(item => { const q = stockMap[item.id] || 0; return q > 0 && q < 5; });
+
+  // Presenças hoje
+  const today = todayStr();
+  const allWorkers = workers || [];
+  const todayRec = (attendance || []).find(a => a.date === today);
+  const presentToday = todayRec ? (todayRec.present || []).length : 0;
+
+  const d = dark;
+
+  if (loading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
 
   return (
-    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg,#f0f4ff 0%,#f8fafc 60%,#fff7ed 100%)" }}>
-      <div style={{ background: "#1e293b", padding: "0 20px" }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", height: 60 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 24 }}>🏗️</span><div><div style={{ color: "#fff", fontWeight: 800, fontSize: 17, letterSpacing: -0.5, fontFamily: "'Sora',sans-serif" }}>ObraControl</div><div style={{ color: "#64748b", fontSize: 11, fontFamily: "'Sora',sans-serif" }}>Parte Elétrica</div></div></div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ color: "#475569", fontSize: 12, fontFamily: "'Sora',sans-serif" }}>{new Date().toLocaleDateString("pt-PT", { day: "2-digit", month: "short", year: "numeric" })}</div>
-            <button onClick={() => { sessionStorage.removeItem("obra_unlocked"); setUnlocked(false); }} style={{ padding: "5px 12px", background: "#334155", border: "none", borderRadius: 8, color: "#94a3b8", cursor: "pointer", fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 600 }} title="Bloquear">🔒 Sair</button>
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Welcome */}
+      <div style={{ background: "linear-gradient(135deg,#6366f1,#4f46e5)", borderRadius: 16, padding: "20px 24px", color: "#fff" }}>
+        <div style={{ fontFamily: "'Sora',sans-serif", fontWeight: 800, fontSize: 20 }}>Bom dia! 👷</div>
+        <div style={{ fontFamily: "'Sora',sans-serif", fontSize: 13, opacity: 0.8, marginTop: 4 }}>
+          {new Date().toLocaleDateString("pt-PT", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12 }}>
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#22c55e", animation: "pulse 2s infinite" }} />
+          <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, opacity: 0.9 }}>LIVE · Dados em tempo real</span>
+          <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}`}</style>
+        </div>
+      </div>
+
+      {/* Stats grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        {[
+          { label: "Progresso Checklist", value: `${clPct}%`, sub: `${clDone}/${clTotal} itens`, color: "#6366f1", icon: "⚡", tab: "checklist" },
+          { label: "Tarefas Pendentes", value: tasksPending, sub: `${tasksDone} concluídas`, color: "#f59e0b", icon: "✅", tab: "tasks" },
+          { label: "Presentes Hoje", value: presentToday, sub: `de ${allWorkers.length} funcionários`, color: "#22c55e", icon: "👷", tab: "attendance" },
+          { label: "Stock Esgotado", value: stockCritical.length, sub: `${stockLow.length} em nível baixo`, color: stockCritical.length > 0 ? "#ef4444" : "#22c55e", icon: "📦", tab: "stock" },
+        ].map(stat => (
+          <button key={stat.label} onClick={() => setTab(stat.tab)} style={{ background: d ? "#1e293b" : "#fff", border: `1.5px solid ${d ? "#334155" : "#e2e8f0"}`, borderRadius: 14, padding: "16px", textAlign: "left", cursor: "pointer", transition: "all 0.2s" }}>
+            <div style={{ fontSize: 22, marginBottom: 8 }}>{stat.icon}</div>
+            <div style={{ fontFamily: "'Sora',sans-serif", fontWeight: 800, fontSize: 24, color: stat.color }}>{stat.value}</div>
+            <div style={{ fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 12, color: d ? "#94a3b8" : "#64748b", marginTop: 2 }}>{stat.label}</div>
+            <div style={{ fontFamily: "'Sora',sans-serif", fontSize: 11, color: d ? "#475569" : "#94a3b8", marginTop: 2 }}>{stat.sub}</div>
+          </button>
+        ))}
+      </div>
+
+      {/* Progresso barra */}
+      <div style={{ background: d ? "#1e293b" : "#fff", border: `1.5px solid ${d ? "#334155" : "#e2e8f0"}`, borderRadius: 14, padding: "16px 20px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+          <span style={{ fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, color: d ? "#e2e8f0" : "#1e293b" }}>⚡ Progresso Elétrico Global</span>
+          <span style={{ fontFamily: "'Sora',sans-serif", fontWeight: 800, fontSize: 14, color: "#6366f1" }}>{clPct}%</span>
+        </div>
+        <div style={{ height: 10, background: d ? "#334155" : "#f1f5f9", borderRadius: 99, overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${clPct}%`, background: clPct === 100 ? "linear-gradient(90deg,#22c55e,#16a34a)" : "linear-gradient(90deg,#6366f1,#4f46e5)", borderRadius: 99, transition: "width 0.5s" }} />
+        </div>
+        <div style={{ display: "flex", gap: 16, marginTop: 10 }}>
+          <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#22c55e", fontWeight: 600 }}>✓ {clDone} concluídos</span>
+          {clInc > 0 && <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#ef4444", fontWeight: 600 }}>⚠️ {clInc} incompletos</span>}
+          <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, color: d ? "#475569" : "#94a3b8" }}>{clTotal - clDone - clInc} pendentes</span>
+        </div>
+      </div>
+
+      {/* Stock crítico */}
+      {stockCritical.length > 0 && (
+        <div style={{ background: "#fff1f2", border: "1.5px solid #fecaca", borderRadius: 14, padding: "16px 20px" }}>
+          <div style={{ fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, color: "#dc2626", marginBottom: 10 }}>⚠️ Material Esgotado</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {stockCritical.map(item => (
+              <span key={item.id} style={{ padding: "4px 12px", borderRadius: 99, background: "#fee2e2", color: "#dc2626", fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 600 }}>
+                {item.code && <span style={{ opacity: 0.7, marginRight: 4 }}>{item.code}</span>}{item.name}
+              </span>
+            ))}
           </div>
         </div>
-      </div>
-      <div style={{ background: "#fff", borderBottom: "1.5px solid #e2e8f0", overflowX: "auto" }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex" }}>
-          {TABS.map(t => (<button key={t.key} onClick={() => setTab(t.key)} style={{ padding: "14px 18px", border: "none", background: "transparent", cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 600, fontSize: 13, color: tab === t.key ? "#6366f1" : "#94a3b8", borderBottom: tab === t.key ? "2.5px solid #6366f1" : "2.5px solid transparent", transition: "all 0.2s", marginBottom: -1, whiteSpace: "nowrap" }}>{t.label}</button>))}
+      )}
+
+      {/* Tarefas urgentes */}
+      {allTasks.filter(t => !t.done && (t.tags || []).includes("urgente")).length > 0 && (
+        <div style={{ background: d ? "#1e293b" : "#fff", border: `1.5px solid ${d ? "#334155" : "#e2e8f0"}`, borderRadius: 14, padding: "16px 20px" }}>
+          <div style={{ fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, color: "#ef4444", marginBottom: 10 }}>🚨 Tarefas Urgentes</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {allTasks.filter(t => !t.done && (t.tags || []).includes("urgente")).slice(0, 3).map(t => (
+              <div key={t.id} style={{ fontFamily: "'Sora',sans-serif", fontSize: 13, color: d ? "#e2e8f0" : "#1e293b", padding: "6px 0", borderBottom: `1px solid ${d ? "#334155" : "#f1f5f9"}` }}>🔴 {t.text}</div>
+            ))}
+          </div>
         </div>
+      )}
+
+      {/* Atalhos */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+        {[
+          { label: "Nova Sala", icon: "🏠", tab: "checklist" },
+          { label: "Nova Tarefa", icon: "➕", tab: "tasks" },
+          { label: "Ver Fotos", icon: "📷", tab: "photos" },
+        ].map(a => (
+          <button key={a.label} onClick={() => setTab(a.tab)} style={{ background: d ? "#1e293b" : "#f8fafc", border: `1.5px solid ${d ? "#334155" : "#e2e8f0"}`, borderRadius: 12, padding: "14px 10px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 22 }}>{a.icon}</span>
+            <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, color: d ? "#94a3b8" : "#64748b" }}>{a.label}</span>
+          </button>
+        ))}
       </div>
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 16px" }}>
-        {tab === "checklist" && <ChecklistTab />}
-        {tab === "tasks" && <TasksTab />}
-        {tab === "stock" && <StockTab />}
-        {tab === "photos" && <PhotosTab />}
-        {tab === "attendance" && <AttendanceTab />}
-        {tab === "settings" && <SettingsTab />}
-      </div>
-      <div style={{ textAlign: "center", padding: "16px", color: "#cbd5e1", fontSize: 11, fontFamily: "'Sora',sans-serif" }}>ObraControl · Firebase LIVE</div>
     </div>
   );
 }
 
-const S = {
-  input: { padding: "9px 14px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontFamily: "'Sora',sans-serif", fontSize: 14, outline: "none", background: "#f8fafc", color: "#1e293b", width: "100%", boxSizing: "border-box" },
-  btnPrimary: { padding: "9px 20px", background: "linear-gradient(135deg,#6366f1,#4f46e5)", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 14 },
-  btnGhost: { padding: "8px 16px", background: "transparent", color: "#64748b", border: "1.5px solid #e2e8f0", borderRadius: 10, cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 600, fontSize: 13 },
-  btnSmall: { padding: "5px 10px", background: "#f1f5f9", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 14 },
-  card: { background: "#fff", borderRadius: 14, border: "1.5px solid #e2e8f0", overflow: "hidden" },
-  cardHeader: { padding: "14px 20px", background: "#f8fafc", borderBottom: "1.5px solid #e2e8f0", fontWeight: 700, fontSize: 14, color: "#1e293b", fontFamily: "'Sora',sans-serif" },
-  label: { display: "block", marginBottom: 6, fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5 },
-};
+// ─── TAGS CONSTANTS ───────────────────────────────────────────
+const TAGS = [
+  { value: "urgente",          label: "🚨 Urgente",           color: "#ef4444" },
+  { value: "aguarda-material", label: "📦 Aguarda Material",  color: "#f59e0b" },
+  { value: "aguarda-inspecao", label: "🔍 Aguarda Inspeção",  color: "#6366f1" },
+  { value: "em-curso",         label: "⚙️ Em Curso",          color: "#3b82f6" },
+  { value: "bloqueado",        label: "🚫 Bloqueado",         color: "#94a3b8" },
+];
+
+// ─── MAIN ─────────────────────────────────────────────────────
+export default function App() {
+  const [unlocked, setUnlocked] = useState(() => sessionStorage.getItem("obra_unlocked") === "1");
+  const [tab, setTab] = useState("dashboard");
+  const [dark, setDark] = useState(() => localStorage.getItem("obra_dark") === "1");
+
+  function toggleDark() {
+    const next = !dark;
+    setDark(next);
+    localStorage.setItem("obra_dark", next ? "1" : "0");
+  }
+
+  const TABS = [
+    { key: "dashboard", label: "🏠 Início" },
+    { key: "checklist", label: "⚡ Checklist" },
+    { key: "tasks",     label: "✅ Tarefas" },
+    { key: "stock",     label: "📦 Material" },
+    { key: "photos",    label: "📷 Fotos" },
+    { key: "attendance",label: "👷 Ponto" },
+    { key: "settings",  label: "⚙️ Config." },
+  ];
+
+  if (!unlocked) return <PinLock onUnlock={() => setUnlocked(true)} />;
+
+  const bg = dark ? "#0f172a" : "linear-gradient(135deg,#f0f4ff 0%,#f8fafc 60%,#fff7ed 100%)";
+  const navBg = dark ? "#0f172a" : "#fff";
+  const navBorder = dark ? "#1e293b" : "#e2e8f0";
+  const tabActive = "#6366f1";
+  const tabInactive = dark ? "#475569" : "#94a3b8";
+
+  return (
+    <div style={{ minHeight: "100vh", background: bg }}>
+      <div style={{ background: "#1e293b", padding: "0 20px" }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", height: 60 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 24 }}>🏗️</span>
+            <div>
+              <div style={{ color: "#fff", fontWeight: 800, fontSize: 17, letterSpacing: -0.5, fontFamily: "'Sora',sans-serif" }}>ObraControl</div>
+              <div style={{ color: "#64748b", fontSize: 11, fontFamily: "'Sora',sans-serif" }}>Parte Elétrica</div>
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={toggleDark} style={{ padding: "5px 12px", background: "#334155", border: "none", borderRadius: 8, color: "#94a3b8", cursor: "pointer", fontFamily: "'Sora',sans-serif", fontSize: 13, fontWeight: 600 }} title="Modo escuro">
+              {dark ? "☀️" : "🌙"}
+            </button>
+            <button onClick={() => { sessionStorage.removeItem("obra_unlocked"); setUnlocked(false); }} style={{ padding: "5px 12px", background: "#334155", border: "none", borderRadius: 8, color: "#94a3b8", cursor: "pointer", fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 600 }}>🔒 Sair</button>
+          </div>
+        </div>
+      </div>
+      <div style={{ background: navBg, borderBottom: `1.5px solid ${navBorder}`, overflowX: "auto" }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex" }}>
+          {TABS.map(t => (<button key={t.key} onClick={() => setTab(t.key)} style={{ padding: "14px 16px", border: "none", background: "transparent", cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 600, fontSize: 12, color: tab === t.key ? tabActive : tabInactive, borderBottom: tab === t.key ? `2.5px solid ${tabActive}` : "2.5px solid transparent", transition: "all 0.2s", marginBottom: -1, whiteSpace: "nowrap" }}>{t.label}</button>))}
+        </div>
+      </div>
+      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 16px" }}>
+        {tab === "dashboard"  && <DashboardTab dark={dark} setTab={setTab} />}
+        {tab === "checklist"  && <ChecklistTab dark={dark} />}
+        {tab === "tasks"      && <TasksTab dark={dark} />}
+        {tab === "stock"      && <StockTab dark={dark} />}
+        {tab === "photos"     && <PhotosTab dark={dark} />}
+        {tab === "attendance" && <AttendanceTab dark={dark} />}
+        {tab === "settings"   && <SettingsTab dark={dark} />}
+      </div>
+      <div style={{ textAlign: "center", padding: "16px", color: dark ? "#334155" : "#cbd5e1", fontSize: 11, fontFamily: "'Sora',sans-serif" }}>ObraControl · Firebase LIVE</div>
+    </div>
+  );
+}
+
+function mkS(dark) {
+  const d = dark;
+  return {
+    input: { padding: "9px 14px", border: `1.5px solid ${d ? "#334155" : "#e2e8f0"}`, borderRadius: 10, fontFamily: "'Sora',sans-serif", fontSize: 14, outline: "none", background: d ? "#1e293b" : "#f8fafc", color: d ? "#e2e8f0" : "#1e293b", width: "100%", boxSizing: "border-box" },
+    btnPrimary: { padding: "9px 20px", background: "linear-gradient(135deg,#6366f1,#4f46e5)", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 14 },
+    btnGhost: { padding: "8px 16px", background: "transparent", color: d ? "#94a3b8" : "#64748b", border: `1.5px solid ${d ? "#334155" : "#e2e8f0"}`, borderRadius: 10, cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 600, fontSize: 13 },
+    btnSmall: { padding: "5px 10px", background: d ? "#1e293b" : "#f1f5f9", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 14 },
+    card: { background: d ? "#1e293b" : "#fff", borderRadius: 14, border: `1.5px solid ${d ? "#334155" : "#e2e8f0"}`, overflow: "hidden" },
+    cardHeader: { padding: "14px 20px", background: d ? "#0f172a" : "#f8fafc", borderBottom: `1.5px solid ${d ? "#334155" : "#e2e8f0"}`, fontWeight: 700, fontSize: 14, color: d ? "#e2e8f0" : "#1e293b", fontFamily: "'Sora',sans-serif" },
+    label: { display: "block", marginBottom: 6, fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, color: d ? "#64748b" : "#64748b", textTransform: "uppercase", letterSpacing: 0.5 },
+  };
+}
+
+// Keep S as light-mode default for components that don't receive dark prop
+const S = mkS(false);
