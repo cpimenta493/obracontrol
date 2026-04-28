@@ -659,7 +659,7 @@ function StockTab() {
   const summaryList = Object.values(summary).sort((a, b) => a.name.localeCompare(b.name));
   const byDay = {}; filtered.forEach(e => { if (!byDay[e.date]) byDay[e.date] = []; byDay[e.date].push(e); });
   const days = Object.keys(byDay).sort((a, b) => b.localeCompare(a));
-  function doExportEntries() { exportToCSV([["Data", "Código", "Material", "Quantidade", "Unidade", "Observação"], ...filtered.map(e => [e.date, e.code || "", e.name, e.qty, e.unit, e.obs || ""])], `materiais_gastos.csv`); }
+  function doExportEntries() { exportToCSV([["Data", "Código", "Material", "Quantidade", "Unidade", "Observações"], ...filtered.map(e => [e.date, e.code || "", e.name, e.qty, e.unit, e.obs || ""])], `materiais_gastos.csv`); }
   if (loading || catLoading || invLoading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -733,15 +733,47 @@ function AttendanceTab() {
   const [showManageWorkers, setShowManageWorkers] = useState(false);
   const [newWorkerName, setNewWorkerName] = useState("");
   const [filterFrom, setFilterFrom] = useState(""); const [filterTo, setFilterTo] = useState("");
-  const allWorkers = workers || []; const allAttendance = attendance || [];
-  const dayRecord = allAttendance.find(a => a.date === selDate) || { date: selDate, present: [] };
+
+  const allWorkers = workers || [];
+  const allAttendance = attendance || [];
+  const dayRecord = allAttendance.find(a => a.date === selDate) || { date: selDate, present: [], works: "" };
   const present = dayRecord.present || [];
-  function toggleWorker(wid) { const isPresent = present.includes(wid); const newPresent = isPresent ? present.filter(id => id !== wid) : [...present, wid]; const newRecord = { ...dayRecord, date: selDate, present: newPresent }; const exists = allAttendance.find(a => a.date === selDate); setAttendance(exists ? allAttendance.map(a => a.date === selDate ? newRecord : a) : [...allAttendance, newRecord]); }
+  const works = dayRecord.works || "";
+
+  function updateDayRecord(updates) {
+    const newRecord = { ...dayRecord, date: selDate, ...updates };
+    const exists = allAttendance.find(a => a.date === selDate);
+    setAttendance(exists ? allAttendance.map(a => a.date === selDate ? newRecord : a) : [...allAttendance, newRecord]);
+  }
+
+  function toggleWorker(wid) {
+    const isPresent = present.includes(wid);
+    const newPresent = isPresent ? present.filter(id => id !== wid) : [...present, wid];
+    updateDayRecord({ present: newPresent });
+  }
+
+  function updateWorks(val) { updateDayRecord({ works: val }); }
+
   function addWorker() { if (!newWorkerName.trim()) return; setWorkers([...allWorkers, { id: genId(), name: newWorkerName.trim() }]); setNewWorkerName(""); }
   function deleteWorker(id) { setWorkers(allWorkers.filter(w => w.id !== id)); }
-  const histFiltered = allAttendance.filter(a => { const mf = filterFrom ? a.date >= filterFrom : true; const mt = filterTo ? a.date <= filterTo : true; return mf && mt && (a.present || []).length > 0; }).sort((a, b) => b.date.localeCompare(a.date));
-  function doExport() { const rows = [["Data", "Funcionário"]]; histFiltered.forEach(a => { allWorkers.filter(w => (a.present || []).includes(w.id)).forEach(w => rows.push([a.date, w.name])); }); exportToCSV(rows, `folha_ponto.csv`); }
+
+  const histFiltered = allAttendance.filter(a => {
+    const mf = filterFrom ? a.date >= filterFrom : true;
+    const mt = filterTo ? a.date <= filterTo : true;
+    return mf && mt && (a.present || []).length > 0;
+  }).sort((a, b) => b.date.localeCompare(a.date));
+
+  function doExport() {
+    const rows = [["Data", "Funcionário", "Trabalhos Realizados"]];
+    histFiltered.forEach(a => {
+      const presentWorkers = allWorkers.filter(w => (a.present || []).includes(w.id));
+      presentWorkers.forEach(w => rows.push([a.date, w.name, a.works || ""]));
+    });
+    exportToCSV(rows, `folha_ponto.csv`);
+  }
+
   if (loading || wLoading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       {showManageWorkers && (
@@ -756,6 +788,7 @@ function AttendanceTab() {
           </div>
         </div>
       )}
+
       <div style={S.card}>
         <div style={{ ...S.cardHeader, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
           <span>👷 Folha de Ponto</span>
@@ -765,13 +798,41 @@ function AttendanceTab() {
           </div>
         </div>
         <div style={{ padding: "14px 18px" }}>
-          <div style={{ marginBottom: 12, fontFamily: "'Sora',sans-serif", fontSize: 13, color: "#64748b" }}>{new Date(selDate + "T12:00:00").toLocaleDateString("pt-PT", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })} — <strong style={{ color: "#22c55e" }}>{present.length} presente(s)</strong> / {allWorkers.length}</div>
+          <div style={{ marginBottom: 12, fontFamily: "'Sora',sans-serif", fontSize: 13, color: "#64748b" }}>
+            {new Date(selDate + "T12:00:00").toLocaleDateString("pt-PT", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })} — <strong style={{ color: "#22c55e" }}>{present.length} presente(s)</strong> / {allWorkers.length}
+          </div>
+
           {allWorkers.length === 0 && <div style={{ textAlign: "center", padding: 20, color: "#94a3b8", fontFamily: "'Sora',sans-serif", fontSize: 13 }}>Nenhum funcionário.</div>}
+
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {allWorkers.map(w => { const isPresent = present.includes(w.id); return (<button key={w.id} onClick={() => toggleWorker(w.id)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", borderRadius: 12, border: `2px solid ${isPresent ? "#22c55e" : "#e2e8f0"}`, background: isPresent ? "#f0fdf4" : "#f8fafc", cursor: "pointer", textAlign: "left" }}><div style={{ width: 28, height: 28, borderRadius: "50%", border: `2.5px solid ${isPresent ? "#22c55e" : "#cbd5e1"}`, background: isPresent ? "#22c55e" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{isPresent && <svg width="14" height="14" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}</div><span style={{ flex: 1, fontFamily: "'Sora',sans-serif", fontWeight: 600, fontSize: 15, color: isPresent ? "#16a34a" : "#475569" }}>{w.name}</span><span style={{ padding: "3px 12px", borderRadius: 99, fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, background: isPresent ? "#dcfce7" : "#f1f5f9", color: isPresent ? "#16a34a" : "#94a3b8" }}>{isPresent ? "✓ Presente" : "Ausente"}</span></button>); })}
+            {allWorkers.map(w => {
+              const isPresent = present.includes(w.id);
+              return (
+                <button key={w.id} onClick={() => toggleWorker(w.id)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", borderRadius: 12, border: `2px solid ${isPresent ? "#22c55e" : "#e2e8f0"}`, background: isPresent ? "#f0fdf4" : "#f8fafc", cursor: "pointer", textAlign: "left" }}>
+                  <div style={{ width: 28, height: 28, borderRadius: "50%", border: `2.5px solid ${isPresent ? "#22c55e" : "#cbd5e1"}`, background: isPresent ? "#22c55e" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    {isPresent && <svg width="14" height="14" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                  </div>
+                  <span style={{ flex: 1, fontFamily: "'Sora',sans-serif", fontWeight: 600, fontSize: 15, color: isPresent ? "#16a34a" : "#475569" }}>{w.name}</span>
+                  <span style={{ padding: "3px 12px", borderRadius: 99, fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, background: isPresent ? "#dcfce7" : "#f1f5f9", color: isPresent ? "#16a34a" : "#94a3b8" }}>{isPresent ? "✓ Presente" : "Ausente"}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Trabalhos realizados no dia */}
+          <div style={{ marginTop: 18, borderTop: "1px solid #f1f5f9", paddingTop: 16 }}>
+            <label style={S.label}>🔧 Trabalhos Realizados no Dia</label>
+            <textarea
+              value={works}
+              onChange={e => updateWorks(e.target.value)}
+              placeholder="Descreve os trabalhos realizados hoje… Ex: Passagem de cabos no piso 2, instalação de tomadas no quarto 3…"
+              rows={3}
+              style={{ ...S.input, resize: "vertical", lineHeight: 1.5, fontSize: 13 }}
+            />
           </div>
         </div>
       </div>
+
       <div style={S.card}>
         <div style={{ ...S.cardHeader, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
           <span>📋 Histórico</span>
@@ -782,7 +843,28 @@ function AttendanceTab() {
           <div><label style={S.label}>Até</label><input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} style={S.input} /></div>
           {(filterFrom || filterTo) && <button onClick={() => { setFilterFrom(""); setFilterTo(""); }} style={{ ...S.btnGhost, alignSelf: "flex-end" }}>✕</button>}
         </div>
-        {histFiltered.length === 0 ? <div style={{ textAlign: "center", padding: 30, color: "#94a3b8", fontFamily: "'Sora',sans-serif", fontSize: 13 }}>Nenhum registo.</div> : histFiltered.map(a => { const presentNames = allWorkers.filter(w => (a.present || []).includes(w.id)); return (<div key={a.date} style={{ padding: "12px 18px", borderTop: "1px solid #f1f5f9" }}><div style={{ fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, color: "#1e293b", marginBottom: 8 }}>📅 {new Date(a.date + "T12:00:00").toLocaleDateString("pt-PT", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}<span style={{ marginLeft: 10, fontSize: 12, color: "#22c55e", fontWeight: 600 }}>{presentNames.length} presente(s)</span></div><div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{presentNames.map(n => <span key={n.id} style={{ padding: "3px 10px", borderRadius: 99, background: "#dcfce7", color: "#16a34a", fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 600 }}>✓ {n.name}</span>)}</div></div>); })}
+        {histFiltered.length === 0
+          ? <div style={{ textAlign: "center", padding: 30, color: "#94a3b8", fontFamily: "'Sora',sans-serif", fontSize: 13 }}>Nenhum registo.</div>
+          : histFiltered.map(a => {
+              const presentNames = allWorkers.filter(w => (a.present || []).includes(w.id));
+              return (
+                <div key={a.date} style={{ padding: "14px 18px", borderTop: "1px solid #f1f5f9" }}>
+                  <div style={{ fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, color: "#1e293b", marginBottom: 8 }}>
+                    📅 {new Date(a.date + "T12:00:00").toLocaleDateString("pt-PT", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}
+                    <span style={{ marginLeft: 10, fontSize: 12, color: "#22c55e", fontWeight: 600 }}>{presentNames.length} presente(s)</span>
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: a.works ? 8 : 0 }}>
+                    {presentNames.map(n => <span key={n.id} style={{ padding: "3px 10px", borderRadius: 99, background: "#dcfce7", color: "#16a34a", fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 600 }}>✓ {n.name}</span>)}
+                  </div>
+                  {a.works && (
+                    <div style={{ marginTop: 6, padding: "8px 12px", background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0", fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#475569" }}>
+                      🔧 <em>{a.works}</em>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+        }
       </div>
     </div>
   );
