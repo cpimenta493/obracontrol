@@ -788,16 +788,205 @@ function AttendanceTab() {
   );
 }
 
+// ─── SETTINGS TAB ─────────────────────────────────────────────
+const PIN_MASTER = "436900";
+
+function SettingsTab() {
+  const [config, setConfig, loading] = useFirebase("config", { pin: "0000" });
+  const [masterInput, setMasterInput] = useState("");
+  const [masterOk, setMasterOk] = useState(false);
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [msg, setMsg] = useState(null);
+
+  function verifyMaster() {
+    if (masterInput === PIN_MASTER) { setMasterOk(true); setMasterInput(""); setMsg(null); }
+    else { setMsg({ type: "error", text: "PIN Master incorreto." }); setMasterInput(""); }
+  }
+
+  function changePin() {
+    if (!/^\d{4,6}$/.test(newPin)) { setMsg({ type: "error", text: "O novo PIN deve ter 4 a 6 dígitos." }); return; }
+    if (newPin !== confirmPin) { setMsg({ type: "error", text: "Os PINs não coincidem." }); return; }
+    setConfig({ ...config, pin: newPin });
+    setNewPin(""); setConfirmPin(""); setMasterOk(false);
+    setMsg({ type: "success", text: "PIN alterado com sucesso! 🎉" });
+    setTimeout(() => setMsg(null), 3000);
+  }
+
+  if (loading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20, maxWidth: 480 }}>
+      <div style={{ background: "#1e293b", borderRadius: 16, padding: "20px 24px", display: "flex", alignItems: "center", gap: 14 }}>
+        <span style={{ fontSize: 28 }}>⚙️</span>
+        <div>
+          <div style={{ color: "#fff", fontWeight: 800, fontSize: 18, fontFamily: "'Sora',sans-serif" }}>Configurações</div>
+          <div style={{ color: "#64748b", fontSize: 12, fontFamily: "'Sora',sans-serif" }}>Gerir acesso e preferências</div>
+        </div>
+      </div>
+
+      <div style={S.card}>
+        <div style={S.cardHeader}>🔒 Alterar PIN de Acesso</div>
+        <div style={{ padding: "20px" }}>
+
+          {msg && (
+            <div style={{ padding: "10px 14px", borderRadius: 10, marginBottom: 16, background: msg.type === "error" ? "#fff1f2" : "#f0fdf4", border: `1.5px solid ${msg.type === "error" ? "#fecaca" : "#bbf7d0"}`, fontFamily: "'Sora',sans-serif", fontSize: 13, fontWeight: 600, color: msg.type === "error" ? "#dc2626" : "#16a34a" }}>
+              {msg.text}
+            </div>
+          )}
+
+          {!masterOk ? (
+            <>
+              <div style={{ marginBottom: 14, fontFamily: "'Sora',sans-serif", fontSize: 13, color: "#64748b" }}>
+                Para alterar o PIN de acesso é necessário introduzir o <strong>PIN Master</strong>.
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <div>
+                  <label style={S.label}>PIN Master</label>
+                  <input type="password" inputMode="numeric" maxLength={6} value={masterInput} onChange={e => setMasterInput(e.target.value.replace(/\D/g, ""))} onKeyDown={e => e.key === "Enter" && verifyMaster()} style={S.input} placeholder="••••••" />
+                </div>
+              </div>
+              <button onClick={verifyMaster} style={{ ...S.btnPrimary, marginTop: 18 }}>Verificar PIN Master</button>
+            </>
+          ) : (
+            <>
+              <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 10, background: "#f0fdf4", border: "1.5px solid #bbf7d0", fontFamily: "'Sora',sans-serif", fontSize: 13, fontWeight: 600, color: "#16a34a" }}>
+                ✓ PIN Master verificado. Podes alterar o PIN de acesso.
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <div>
+                  <label style={S.label}>Novo PIN (4 a 6 dígitos)</label>
+                  <input type="password" inputMode="numeric" maxLength={6} value={newPin} onChange={e => setNewPin(e.target.value.replace(/\D/g, ""))} style={S.input} placeholder="••••" />
+                </div>
+                <div>
+                  <label style={S.label}>Confirmar Novo PIN</label>
+                  <input type="password" inputMode="numeric" maxLength={6} value={confirmPin} onChange={e => setConfirmPin(e.target.value.replace(/\D/g, ""))} onKeyDown={e => e.key === "Enter" && changePin()} style={S.input} placeholder="••••" />
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+                <button onClick={changePin} style={S.btnPrimary}>🔒 Alterar PIN</button>
+                <button onClick={() => { setMasterOk(false); setNewPin(""); setConfirmPin(""); setMsg(null); }} style={S.btnGhost}>Cancelar</button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div style={S.card}>
+        <div style={S.cardHeader}>ℹ️ Informação</div>
+        <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 10 }}>
+          {[
+            { label: "Versão", value: "ObraControl v2.0" },
+            { label: "Base de dados", value: "Firebase Realtime DB" },
+            { label: "Armazenamento de fotos", value: "Cloudinary (Free)" },
+            { label: "Alojamento", value: "Vercel (Free)" },
+          ].map(item => (
+            <div key={item.label} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #f1f5f9" }}>
+              <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 13, color: "#64748b", fontWeight: 600 }}>{item.label}</span>
+              <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 13, color: "#1e293b", fontWeight: 700 }}>{item.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── PIN LOCK SCREEN ──────────────────────────────────────────
+function PinLock({ onUnlock }) {
+  const [config, , loading] = useFirebase("config", { pin: "0000" });
+  const [input, setInput] = useState("");
+  const [error, setError] = useState(false);
+  const [shake, setShake] = useState(false);
+
+  function tryPin(pin) {
+    if (pin === (config?.pin || "0000")) {
+      sessionStorage.setItem("obra_unlocked", "1");
+      onUnlock();
+    } else {
+      setError(true); setShake(true);
+      setInput("");
+      setTimeout(() => setShake(false), 500);
+      setTimeout(() => setError(false), 2000);
+    }
+  }
+
+  function pressDigit(d) {
+    const next = input + d;
+    setError(false);
+    if (next.length <= 6) {
+      setInput(next);
+      if (next.length >= 4) setTimeout(() => tryPin(next), 100);
+    }
+  }
+
+  function del() { setInput(i => i.slice(0, -1)); }
+
+  if (loading) return (
+    <div style={{ minHeight: "100vh", background: "#1e293b", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ width: 28, height: 28, border: "3px solid #334155", borderTopColor: "#6366f1", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
+
+  const pinLen = config?.pin?.length || 4;
+
+  return (
+    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg,#0f172a,#1e293b)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <style>{`
+        @keyframes shake { 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(-8px)} 40%,80%{transform:translateX(8px)} }
+        @keyframes spin { to{transform:rotate(360deg)} }
+        .pin-btn:active { transform: scale(0.92); }
+      `}</style>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 32, animation: shake ? "shake 0.5s" : "none" }}>
+
+        {/* Logo */}
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 48, marginBottom: 8 }}>🏗️</div>
+          <div style={{ color: "#fff", fontWeight: 800, fontSize: 24, fontFamily: "'Sora',sans-serif", letterSpacing: -0.5 }}>ObraControl</div>
+          <div style={{ color: "#64748b", fontSize: 13, fontFamily: "'Sora',sans-serif", marginTop: 4 }}>Introduz o PIN para aceder</div>
+        </div>
+
+        {/* PIN dots */}
+        <div style={{ display: "flex", gap: 14 }}>
+          {Array.from({ length: pinLen }).map((_, i) => (
+            <div key={i} style={{ width: 16, height: 16, borderRadius: "50%", background: i < input.length ? (error ? "#ef4444" : "#6366f1") : "#334155", transition: "background 0.15s", border: `2px solid ${i < input.length ? (error ? "#ef4444" : "#6366f1") : "#475569"}` }} />
+          ))}
+        </div>
+
+        {error && <div style={{ color: "#ef4444", fontFamily: "'Sora',sans-serif", fontSize: 13, fontWeight: 600, marginTop: -16 }}>PIN incorreto. Tenta novamente.</div>}
+
+        {/* Numpad */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+          {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((d, i) => (
+            d === "" ? <div key={i} /> :
+            <button key={i} className="pin-btn" onClick={() => d === "⌫" ? del() : pressDigit(d)} style={{ width: 72, height: 72, borderRadius: "50%", border: "none", background: d === "⌫" ? "#1e293b" : "#1e3a5f", color: "#fff", fontSize: d === "⌫" ? 22 : 24, fontWeight: 700, fontFamily: "'Sora',sans-serif", cursor: "pointer", transition: "transform 0.1s, background 0.15s", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {d}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── MAIN ─────────────────────────────────────────────────────
 export default function App() {
+  const [unlocked, setUnlocked] = useState(() => sessionStorage.getItem("obra_unlocked") === "1");
   const [tab, setTab] = useState("checklist");
-  const TABS = [{ key: "checklist", label: "⚡ Checklist" }, { key: "tasks", label: "✅ Tarefas" }, { key: "stock", label: "📦 Material" }, { key: "photos", label: "📷 Fotos" }, { key: "attendance", label: "👷 Ponto" }];
+  const TABS = [{ key: "checklist", label: "⚡ Checklist" }, { key: "tasks", label: "✅ Tarefas" }, { key: "stock", label: "📦 Material" }, { key: "photos", label: "📷 Fotos" }, { key: "attendance", label: "👷 Ponto" }, { key: "settings", label: "⚙️ Config." }];
+
+  if (!unlocked) return <PinLock onUnlock={() => setUnlocked(true)} />;
+
   return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(135deg,#f0f4ff 0%,#f8fafc 60%,#fff7ed 100%)" }}>
       <div style={{ background: "#1e293b", padding: "0 20px" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", height: 60 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 24 }}>🏗️</span><div><div style={{ color: "#fff", fontWeight: 800, fontSize: 17, letterSpacing: -0.5, fontFamily: "'Sora',sans-serif" }}>ObraControl</div><div style={{ color: "#64748b", fontSize: 11, fontFamily: "'Sora',sans-serif" }}>Parte Elétrica</div></div></div>
-          <div style={{ color: "#475569", fontSize: 12, fontFamily: "'Sora',sans-serif" }}>{new Date().toLocaleDateString("pt-PT", { day: "2-digit", month: "short", year: "numeric" })}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ color: "#475569", fontSize: 12, fontFamily: "'Sora',sans-serif" }}>{new Date().toLocaleDateString("pt-PT", { day: "2-digit", month: "short", year: "numeric" })}</div>
+            <button onClick={() => { sessionStorage.removeItem("obra_unlocked"); setUnlocked(false); }} style={{ padding: "5px 12px", background: "#334155", border: "none", borderRadius: 8, color: "#94a3b8", cursor: "pointer", fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 600 }} title="Bloquear">🔒 Sair</button>
+          </div>
         </div>
       </div>
       <div style={{ background: "#fff", borderBottom: "1.5px solid #e2e8f0", overflowX: "auto" }}>
@@ -811,6 +1000,7 @@ export default function App() {
         {tab === "stock" && <StockTab />}
         {tab === "photos" && <PhotosTab />}
         {tab === "attendance" && <AttendanceTab />}
+        {tab === "settings" && <SettingsTab />}
       </div>
       <div style={{ textAlign: "center", padding: "16px", color: "#cbd5e1", fontSize: 11, fontFamily: "'Sora',sans-serif" }}>ObraControl · Firebase LIVE</div>
     </div>
