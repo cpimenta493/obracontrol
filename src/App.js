@@ -129,7 +129,7 @@ const UNITS = ["un", "m", "m²", "m³", "kg", "L", "rolo", "cx", "saco"];
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 function waLink(t) { return `https://wa.me/?text=${encodeURIComponent(t)}`; }
 function fmtQty(q) { return q % 1 === 0 ? q : parseFloat(q).toFixed(2); }
-function exportToCSV(rows, filename) { const csv = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n"); const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url); }
+function exportToCSV(rows, filename) { const csv = "sep=;\n" + rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(";")).join("\n"); const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url); }
 
 // ─── CHECKLIST ITEM ───────────────────────────────────────────
 function ChecklistItem({ item, onChange, onRemove }) {
