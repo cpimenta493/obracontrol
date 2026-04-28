@@ -560,13 +560,30 @@ function PhotosTab() {
   );
 }
 
-// ─── TASKS TAB ────────────────────────────────────────────────
+// ─── DIÁRIO DE OBRA TAB ───────────────────────────────────────
 function TasksTab() {
+  const [subTab, setSubTab] = useState("tarefas");
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Sub-menu */}
+      <div style={{ display: "flex", gap: 0, background: "#f1f5f9", borderRadius: 12, padding: 4 }}>
+        {[{ key: "tarefas", label: "✅ Tarefas" }, { key: "notas", label: "📝 Notas" }].map(s => (
+          <button key={s.key} onClick={() => setSubTab(s.key)} style={{ flex: 1, padding: "10px 16px", border: "none", borderRadius: 9, cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, background: subTab === s.key ? "#fff" : "transparent", color: subTab === s.key ? "#1e293b" : "#94a3b8", boxShadow: subTab === s.key ? "0 1px 4px rgba(0,0,0,0.08)" : "none", transition: "all 0.2s" }}>{s.label}</button>
+        ))}
+      </div>
+      {subTab === "tarefas" && <TarefasSection />}
+      {subTab === "notas" && <NotasSection />}
+    </div>
+  );
+}
+
+function TarefasSection() {
   const [tasks, setTasks, loading] = useFirebase("tasks", DEF_TASKS);
   const [newTask, setNewTask] = useState({ text: "", priority: "media", date: "", tags: [] });
   const [filter, setFilter] = useState("todas");
   const [filterTag, setFilterTag] = useState("");
   const [obsOpen, setObsOpen] = useState({});
+  const [editTagsId, setEditTagsId] = useState(null);
   const [dragId, setDragId] = useState(null);
   const [dragOver, setDragOver] = useState(null);
 
@@ -578,8 +595,8 @@ function TasksTab() {
   function toggleDone(id) { setTasks((tasks || []).map(t => { if (t.id !== id) return t; const nd = !t.done; return { ...t, done: nd, doneAt: nd ? new Date().toISOString() : null, doneObs: nd ? (t.doneObs || "") : "" }; })); }
   function updateDoneObs(id, val) { setTasks((tasks || []).map(t => t.id === id ? { ...t, doneObs: val } : t)); }
   function toggleNewTag(val) { setNewTask(n => ({ ...n, tags: (n.tags || []).includes(val) ? (n.tags || []).filter(t => t !== val) : [...(n.tags || []), val] })); }
+  function toggleTaskTag(taskId, tagVal) { setTasks((tasks || []).map(t => { if (t.id !== taskId) return t; const tags = (t.tags || []).includes(tagVal) ? (t.tags || []).filter(v => v !== tagVal) : [...(t.tags || []), tagVal]; return { ...t, tags }; })); }
 
-  // Drag-and-drop reorder
   function onDragStart(id) { setDragId(id); }
   function onDragOver(e, id) { e.preventDefault(); setDragOver(id); }
   function onDrop(id) {
@@ -605,6 +622,7 @@ function TasksTab() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Stats */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
         {[{ label: "Total", val: counts.total, color: "#6366f1" }, { label: "Pendentes", val: counts.total - counts.done, color: "#f59e0b" }, { label: "Concluídas", val: counts.done, color: "#22c55e" }].map(s => (
           <div key={s.label} style={{ background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 12, padding: "12px 20px", display: "flex", flexDirection: "column", gap: 2, minWidth: 100 }}>
@@ -626,23 +644,17 @@ function TasksTab() {
           <select value={newTask.priority} onChange={e => setNewTask(n => ({ ...n, priority: e.target.value }))} style={S.input}>{PRIORITIES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}</select>
           <input type="date" value={newTask.date} onChange={e => setNewTask(n => ({ ...n, date: e.target.value }))} style={S.input} />
         </div>
-        {/* Tags */}
         <div style={{ padding: "0 20px 12px" }}>
           <label style={S.label}>Etiquetas</label>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
-            {TAGS.map(tag => {
-              const active = (newTask.tags || []).includes(tag.value);
-              return (
-                <button key={tag.value} onClick={() => toggleNewTag(tag.value)} style={{ padding: "4px 12px", borderRadius: 99, border: `2px solid ${active ? tag.color : "#e2e8f0"}`, background: active ? tag.color : "transparent", color: active ? "#fff" : "#64748b", fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                  {tag.label}
-                </button>
-              );
-            })}
+            {TAGS.map(tag => { const active = (newTask.tags || []).includes(tag.value); return (<button key={tag.value} onClick={() => toggleNewTag(tag.value)} style={{ padding: "4px 12px", borderRadius: 99, border: `2px solid ${active ? tag.color : "#e2e8f0"}`, background: active ? tag.color : "transparent", color: active ? "#fff" : "#64748b", fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{tag.label}</button>); })}
           </div>
         </div>
         <div style={{ padding: "0 20px 16px", display: "flex", gap: 10, alignItems: "center" }}>
           <button onClick={addTask} style={S.btnPrimary}>+ Adicionar</button>
-          {newTask.text.trim() && (<a href={waLink(`🏗️ Nova tarefa:\n"${newTask.text}"\nPrioridade: ${PRIORITIES.find(p => p.value === newTask.priority)?.label}${newTask.date ? `\nData: ${newTask.date}` : ""}\n\nhttps://obracontrol-beta.vercel.app`)} target="_blank" rel="noreferrer" style={{ padding: "9px 14px", background: "#25d366", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>📲 WhatsApp</a>)}
+          {newTask.text.trim() && (
+            <a href={waLink(`🏗️ Nova tarefa na obra:\n"${newTask.text}"\nPrioridade: ${PRIORITIES.find(p => p.value === newTask.priority)?.label}${newTask.date ? `\nData: ${newTask.date}` : ""}${(newTask.tags || []).length > 0 ? `\nEtiquetas: ${(newTask.tags || []).map(v => TAGS.find(t => t.value === v)?.label).join(", ")}` : ""}\n\nhttps://obracontrol-beta.vercel.app`)} target="_blank" rel="noreferrer" style={{ padding: "9px 14px", background: "#25d366", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>📲 WhatsApp</a>
+          )}
         </div>
       </div>
 
@@ -650,17 +662,13 @@ function TasksTab() {
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {["todas", "pendentes", "concluídas"].map(f => (<button key={f} onClick={() => setFilter(f)} style={{ ...S.btnGhost, background: filter === f ? "#1e293b" : "transparent", color: filter === f ? "#fff" : "#64748b", textTransform: "capitalize" }}>{f}</button>))}
         <div style={{ width: 1, background: "#e2e8f0", margin: "0 4px" }} />
-        <button onClick={() => setFilterTag("")} style={{ ...S.btnGhost, background: !filterTag ? "#eef2ff" : "transparent", color: !filterTag ? "#6366f1" : "#94a3b8", fontSize: 12 }}>Todas as etiquetas</button>
-        {TAGS.map(tag => (
-          <button key={tag.value} onClick={() => setFilterTag(filterTag === tag.value ? "" : tag.value)} style={{ padding: "6px 12px", borderRadius: 99, border: `1.5px solid ${filterTag === tag.value ? tag.color : "#e2e8f0"}`, background: filterTag === tag.value ? tag.color : "transparent", color: filterTag === tag.value ? "#fff" : "#64748b", fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
-            {tag.label}
-          </button>
-        ))}
+        <button onClick={() => setFilterTag("")} style={{ ...S.btnGhost, background: !filterTag ? "#eef2ff" : "transparent", color: !filterTag ? "#6366f1" : "#94a3b8", fontSize: 12 }}>Todas</button>
+        {TAGS.map(tag => (<button key={tag.value} onClick={() => setFilterTag(filterTag === tag.value ? "" : tag.value)} style={{ padding: "6px 12px", borderRadius: 99, border: `1.5px solid ${filterTag === tag.value ? tag.color : "#e2e8f0"}`, background: filterTag === tag.value ? tag.color : "transparent", color: filterTag === tag.value ? "#fff" : "#64748b", fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{tag.label}</button>))}
       </div>
 
-      <div style={{ color: "#94a3b8", fontSize: 12, fontFamily: "'Sora',sans-serif" }}>↕️ Arrasta as tarefas para reordenar</div>
+      <div style={{ color: "#94a3b8", fontSize: 12, fontFamily: "'Sora',sans-serif" }}>↕️ Arrasta para reordenar · 🏷️ para editar etiquetas</div>
 
-      {/* Lista de tarefas */}
+      {/* Lista */}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {filtered.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>Nenhuma tarefa.</div>}
         {filtered.map(task => {
@@ -669,17 +677,10 @@ function TasksTab() {
           const taskTags = TAGS.filter(t => (task.tags || []).includes(t.value));
           const isDragging = dragId === task.id;
           const isOver = dragOver === task.id;
+          const isEditingTags = editTagsId === task.id;
           return (
-            <div
-              key={task.id}
-              draggable
-              onDragStart={() => onDragStart(task.id)}
-              onDragOver={e => onDragOver(e, task.id)}
-              onDrop={() => onDrop(task.id)}
-              onDragEnd={() => { setDragId(null); setDragOver(null); }}
-              style={{ ...S.card, padding: 0, border: isOver ? "2px dashed #6366f1" : task.done ? "1.5px solid #bbf7d0" : "1.5px solid #e2e8f0", opacity: isDragging ? 0.4 : 1, transition: "opacity 0.2s, border 0.15s", cursor: "grab" }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px" }}>
+            <div key={task.id} draggable onDragStart={() => onDragStart(task.id)} onDragOver={e => onDragOver(e, task.id)} onDrop={() => onDrop(task.id)} onDragEnd={() => { setDragId(null); setDragOver(null); }} style={{ ...S.card, padding: 0, border: isOver ? "2px dashed #6366f1" : task.done ? "1.5px solid #bbf7d0" : "1.5px solid #e2e8f0", opacity: isDragging ? 0.4 : 1, transition: "opacity 0.2s, border 0.15s" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px" }}>
                 <span style={{ color: "#cbd5e1", fontSize: 16, cursor: "grab", flexShrink: 0 }}>⠿</span>
                 <button onClick={() => toggleDone(task.id)} style={{ width: 24, height: 24, borderRadius: "50%", border: `2.5px solid ${task.done ? "#22c55e" : "#cbd5e1"}`, background: task.done ? "#22c55e" : "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   {task.done && <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
@@ -688,9 +689,7 @@ function TasksTab() {
                   <div style={{ fontFamily: "'Sora',sans-serif", fontWeight: 500, color: "#1e293b", textDecoration: task.done ? "line-through" : "none", fontSize: 14 }}>{task.text}</div>
                   {taskTags.length > 0 && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 5 }}>
-                      {taskTags.map(tag => (
-                        <span key={tag.value} style={{ padding: "2px 8px", borderRadius: 99, background: tag.color + "22", color: tag.color, fontFamily: "'Sora',sans-serif", fontSize: 10, fontWeight: 700 }}>{tag.label}</span>
-                      ))}
+                      {taskTags.map(tag => (<span key={tag.value} style={{ padding: "2px 8px", borderRadius: 99, background: tag.color + "22", color: tag.color, fontFamily: "'Sora',sans-serif", fontSize: 10, fontWeight: 700 }}>{tag.label}</span>))}
                     </div>
                   )}
                   {task.done && task.doneAt && <div style={{ fontSize: 11, color: "#22c55e", fontFamily: "'Sora',sans-serif", marginTop: 2 }}>✓ {new Date(task.doneAt).toLocaleDateString("pt-PT", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</div>}
@@ -698,9 +697,22 @@ function TasksTab() {
                 </div>
                 <span style={{ padding: "2px 9px", borderRadius: 99, background: pri?.color + "22", color: pri?.color, fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{pri?.label}</span>
                 {task.date && <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 11, color: "#94a3b8", flexShrink: 0 }}>📅 {task.date}</span>}
+                {/* Edit tags btn */}
+                <button onClick={() => setEditTagsId(isEditingTags ? null : task.id)} style={{ ...S.btnSmall, background: isEditingTags ? "#eef2ff" : "#f1f5f9", color: isEditingTags ? "#6366f1" : "#94a3b8", fontSize: 12, flexShrink: 0 }} title="Editar etiquetas">🏷️</button>
+                {/* WhatsApp */}
+                <a href={waLink(`🏗️ Tarefa:\n"${task.text}"\nPrioridade: ${pri?.label}${task.date ? `\nData: ${task.date}` : ""}${taskTags.length > 0 ? `\nEtiquetas: ${taskTags.map(t => t.label).join(", ")}` : ""}\n\nhttps://obracontrol-beta.vercel.app`)} target="_blank" rel="noreferrer" style={{ padding: "4px 8px", background: "#25d366", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 11, textDecoration: "none", flexShrink: 0 }}>📲</a>
                 {task.done && <button onClick={() => setObsOpen(o => ({ ...o, [task.id]: !o[task.id] }))} style={{ ...S.btnSmall, background: isOpen ? "#dcfce7" : "#f1f5f9", color: "#16a34a", fontSize: 13 }}>💬</button>}
                 <ConfirmDeleteBtn onConfirm={() => setTasks((tasks || []).filter(t => t.id !== task.id))} message={`Apagar "${task.text}"?`} />
               </div>
+              {/* Edit tags panel */}
+              {isEditingTags && (
+                <div style={{ padding: "8px 16px 12px", borderTop: "1px solid #f1f5f9", background: "#fafbff" }}>
+                  <div style={{ fontSize: 11, color: "#64748b", fontFamily: "'Sora',sans-serif", fontWeight: 700, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>Editar Etiquetas</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {TAGS.map(tag => { const active = (task.tags || []).includes(tag.value); return (<button key={tag.value} onClick={() => toggleTaskTag(task.id, tag.value)} style={{ padding: "4px 10px", borderRadius: 99, border: `2px solid ${active ? tag.color : "#e2e8f0"}`, background: active ? tag.color : "transparent", color: active ? "#fff" : "#64748b", fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{tag.label}</button>); })}
+                  </div>
+                </div>
+              )}
               {task.done && isOpen && (
                 <div style={{ padding: "0 16px 12px", borderTop: "1px solid #dcfce7" }}>
                   <input placeholder="Observação sobre a conclusão…" value={task.doneObs || ""} onChange={e => updateDoneObs(task.id, e.target.value)} style={{ ...S.input, fontSize: 13, background: "#f0fdf4", border: "1.5px solid #bbf7d0", marginTop: 10 }} />
@@ -709,6 +721,103 @@ function TasksTab() {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ─── NOTAS SECTION ────────────────────────────────────────────
+function NotasSection() {
+  const [notes, setNotes, loading] = useFirebase("notes", []);
+  const [newNote, setNewNote] = useState({ text: "", date: todayStr() });
+  const [search, setSearch] = useState("");
+  const [editId, setEditId] = useState(null);
+  const [editText, setEditText] = useState("");
+
+  function addNote() {
+    if (!newNote.text.trim()) return;
+    setNotes([{ ...newNote, id: genId(), createdAt: new Date().toISOString() }, ...(notes || [])]);
+    setNewNote({ text: "", date: todayStr() });
+  }
+  function deleteNote(id) { setNotes((notes || []).filter(n => n.id !== id)); }
+  function startEdit(note) { setEditId(note.id); setEditText(note.text); }
+  function saveEdit(id) { setNotes((notes || []).map(n => n.id === id ? { ...n, text: editText } : n)); setEditId(null); }
+
+  const allNotes = notes || [];
+  const filtered = allNotes.filter(n => n.text.toLowerCase().includes(search.toLowerCase()) || (n.date || "").includes(search));
+
+  if (loading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Nova nota */}
+      <div style={S.card}>
+        <div style={S.cardHeader}>Nova Nota</div>
+        <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
+          <div>
+            <label style={S.label}>Data</label>
+            <input type="date" value={newNote.date} onChange={e => setNewNote(n => ({ ...n, date: e.target.value }))} style={{ ...S.input, maxWidth: 180 }} />
+          </div>
+          <div>
+            <label style={S.label}>Nota *</label>
+            <textarea
+              value={newNote.text}
+              onChange={e => setNewNote(n => ({ ...n, text: e.target.value }))}
+              placeholder="Escreve aqui a situação ou ocorrência da obra… Ex: Falta de energia no bloco B, Visita do fiscal às 14h, Chuva intensa parou os trabalhos…"
+              rows={3}
+              style={{ ...S.input, resize: "vertical", lineHeight: 1.6, fontSize: 13 }}
+            />
+          </div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <button onClick={addNote} style={S.btnPrimary}>+ Adicionar Nota</button>
+            {newNote.text.trim() && (
+              <a href={waLink(`📝 Nota de obra:\n"${newNote.text}"\nData: ${newNote.date}\n\nhttps://obracontrol-beta.vercel.app`)} target="_blank" rel="noreferrer" style={{ padding: "9px 14px", background: "#25d366", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>📲 WhatsApp</a>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Pesquisa */}
+      <input placeholder="🔍 Pesquisar notas…" value={search} onChange={e => setSearch(e.target.value)} style={S.input} />
+
+      {/* Stats */}
+      <div style={{ fontFamily: "'Sora',sans-serif", fontSize: 13, color: "#94a3b8" }}>
+        {filtered.length} nota(s) {search ? `para "${search}"` : "no total"}
+      </div>
+
+      {/* Lista de notas */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {filtered.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>Nenhuma nota.</div>}
+        {filtered.map(note => (
+          <div key={note.id} style={{ ...S.card, padding: 0, border: "1.5px solid #e2e8f0" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "14px 16px" }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#f59e0b", flexShrink: 0, marginTop: 5 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {editId === note.id ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <textarea value={editText} onChange={e => setEditText(e.target.value)} rows={3} style={{ ...S.input, resize: "vertical", fontSize: 13, lineHeight: 1.6 }} autoFocus />
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={() => saveEdit(note.id)} style={{ ...S.btnPrimary, padding: "6px 14px", fontSize: 13 }}>✓ Guardar</button>
+                      <button onClick={() => setEditId(null)} style={{ ...S.btnGhost, padding: "6px 12px", fontSize: 13 }}>Cancelar</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontFamily: "'Sora',sans-serif", fontSize: 14, color: "#1e293b", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{note.text}</div>
+                )}
+                <div style={{ marginTop: 6, display: "flex", gap: 12, alignItems: "center" }}>
+                  <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 11, color: "#94a3b8" }}>
+                    📅 {new Date((note.date || note.createdAt?.slice(0,10)) + "T12:00:00").toLocaleDateString("pt-PT", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}
+                  </span>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                <a href={waLink(`📝 Nota de obra:\n"${note.text}"\nData: ${note.date}\n\nhttps://obracontrol-beta.vercel.app`)} target="_blank" rel="noreferrer" style={{ padding: "4px 8px", background: "#25d366", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 11, textDecoration: "none" }}>📲</a>
+                {editId !== note.id && <button onClick={() => startEdit(note)} style={{ ...S.btnSmall, fontSize: 13 }}>✏️</button>}
+                <ConfirmDeleteBtn onConfirm={() => deleteNote(note.id)} message="Apagar esta nota?" />
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -1288,7 +1397,7 @@ export default function App() {
   const TABS = [
     { key: "dashboard", label: "🏠 Início" },
     { key: "checklist", label: "⚡ Checklist" },
-    { key: "tasks",     label: "✅ Tarefas" },
+    { key: "tasks",     label: "📔 Diário" },
     { key: "stock",     label: "📦 Material" },
     { key: "photos",    label: "📷 Fotos" },
     { key: "attendance",label: "👷 Ponto" },
