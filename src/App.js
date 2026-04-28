@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { db } from "./firebase";
 import { ref, onValue, set, off } from "firebase/database";
 
-const CLOUDINARY_CLOUD = "dixjsIg0s";
+const CLOUDINARY_CLOUD = "dixjslg0s";
 const CLOUDINARY_PRESET = "obracontrol";
 const CLOUDINARY_UPLOAD_URL = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`;
 
