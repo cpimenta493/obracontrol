@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { db } from "./firebase";
 import { ref, onValue, set, off } from "firebase/database";
 
-const CLOUDINARY_CLOUD = "dixjsIg0s";
+const CLOUDINARY_CLOUD = "dixjslg0s";
 const CLOUDINARY_PRESET = "obracontrol";
 const CLOUDINARY_UPLOAD_URL = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`;
 
@@ -126,10 +126,10 @@ const DEF_ROOMS = []; const DEF_TASKS = []; const DEF_STOCK = []; const DEF_ATTE
 const PRIORITIES = [{ label: "Alta", value: "alta", color: "#ef4444" }, { label: "Média", value: "media", color: "#f59e0b" }, { label: "Baixa", value: "baixa", color: "#22c55e" }];
 const STATUS = { pending: { label: "Pendente", color: "#94a3b8", bg: "#f8fafc", border: "#e2e8f0", icon: null }, done: { label: "Concluído", color: "#16a34a", bg: "#f0fdf4", border: "#bbf7d0", icon: "✓" }, incomplete: { label: "Incompleto", color: "#dc2626", bg: "#fff1f2", border: "#fecaca", icon: "!" } };
 const UNITS = ["un", "m", "m²", "m³", "kg", "L", "rolo", "cx", "saco"];
-function todayStr() { return new Date().toISOString().slice(0, 10); }
+function todayStr() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
 function waLink(t) { return `https://wa.me/?text=${encodeURIComponent(t)}`; }
 function fmtQty(q) { return q % 1 === 0 ? q : parseFloat(q).toFixed(2); }
-function exportToCSV(rows, filename) { const csv = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n"); const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url); }
+function exportToCSV(rows, filename) { const csv = "sep=;\n" + rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(";")).join("\n"); const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url); }
 
 // ─── CHECKLIST ITEM ───────────────────────────────────────────
 function ChecklistItem({ item, onChange, onRemove }) {
@@ -560,20 +560,69 @@ function PhotosTab() {
   );
 }
 
-// ─── TASKS TAB ────────────────────────────────────────────────
+// ─── DIÁRIO DE OBRA TAB ───────────────────────────────────────
 function TasksTab() {
-  const [tasks, setTasks, loading] = useFirebase("tasks", DEF_TASKS);
-  const [newTask, setNewTask] = useState({ text: "", priority: "media", date: "" });
-  const [filter, setFilter] = useState("todas"); const [obsOpen, setObsOpen] = useState({});
-  function addTask() { if (!newTask.text.trim()) return; setTasks([{ ...newTask, id: genId(), done: false, doneAt: null, doneObs: "" }, ...(tasks || [])]); setNewTask({ text: "", priority: "media", date: "" }); }
-  function toggleDone(id) { setTasks((tasks || []).map(t => { if (t.id !== id) return t; const nd = !t.done; return { ...t, done: nd, doneAt: nd ? new Date().toISOString() : null, doneObs: nd ? (t.doneObs || "") : "" }; })); }
-  function updateDoneObs(id, val) { setTasks((tasks || []).map(t => t.id === id ? { ...t, doneObs: val } : t)); }
-  const allTasks = tasks || [];
-  const filtered = allTasks.filter(t => { if (filter === "pendentes") return !t.done; if (filter === "concluídas") return t.done; return true; });
-  const counts = { total: allTasks.length, done: allTasks.filter(t => t.done).length };
-  if (loading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
+  const [subTab, setSubTab] = useState("tarefas");
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Sub-menu */}
+      <div style={{ display: "flex", gap: 0, background: "#f1f5f9", borderRadius: 12, padding: 4 }}>
+        {[{ key: "tarefas", label: "✅ Tarefas" }, { key: "notas", label: "📝 Notas" }].map(s => (
+          <button key={s.key} onClick={() => setSubTab(s.key)} style={{ flex: 1, padding: "10px 16px", border: "none", borderRadius: 9, cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, background: subTab === s.key ? "#fff" : "transparent", color: subTab === s.key ? "#1e293b" : "#94a3b8", boxShadow: subTab === s.key ? "0 1px 4px rgba(0,0,0,0.08)" : "none", transition: "all 0.2s" }}>{s.label}</button>
+        ))}
+      </div>
+      {subTab === "tarefas" && <TarefasSection />}
+      {subTab === "notas" && <NotasSection />}
+    </div>
+  );
+}
+
+function TarefasSection() {
+  const [tasks, setTasks, loading] = useFirebase("tasks", DEF_TASKS);
+  const [newTask, setNewTask] = useState({ text: "", priority: "media", date: "", tags: [] });
+  const [filter, setFilter] = useState("todas");
+  const [filterTag, setFilterTag] = useState("");
+  const [obsOpen, setObsOpen] = useState({});
+  const [editTagsId, setEditTagsId] = useState(null);
+  const [dragId, setDragId] = useState(null);
+  const [dragOver, setDragOver] = useState(null);
+
+  function addTask() {
+    if (!newTask.text.trim()) return;
+    setTasks([{ ...newTask, id: genId(), done: false, doneAt: null, doneObs: "" }, ...(tasks || [])]);
+    setNewTask({ text: "", priority: "media", date: "", tags: [] });
+  }
+  function toggleDone(id) { setTasks((tasks || []).map(t => { if (t.id !== id) return t; const nd = !t.done; return { ...t, done: nd, doneAt: nd ? new Date().toISOString() : null, doneObs: nd ? (t.doneObs || "") : "" }; })); }
+  function updateDoneObs(id, val) { setTasks((tasks || []).map(t => t.id === id ? { ...t, doneObs: val } : t)); }
+  function toggleNewTag(val) { setNewTask(n => ({ ...n, tags: (n.tags || []).includes(val) ? (n.tags || []).filter(t => t !== val) : [...(n.tags || []), val] })); }
+  function toggleTaskTag(taskId, tagVal) { setTasks((tasks || []).map(t => { if (t.id !== taskId) return t; const tags = (t.tags || []).includes(tagVal) ? (t.tags || []).filter(v => v !== tagVal) : [...(t.tags || []), tagVal]; return { ...t, tags }; })); }
+
+  function onDragStart(id) { setDragId(id); }
+  function onDragOver(e, id) { e.preventDefault(); setDragOver(id); }
+  function onDrop(id) {
+    if (!dragId || dragId === id) { setDragId(null); setDragOver(null); return; }
+    const arr = [...(tasks || [])];
+    const fromIdx = arr.findIndex(t => t.id === dragId);
+    const toIdx = arr.findIndex(t => t.id === id);
+    const [moved] = arr.splice(fromIdx, 1);
+    arr.splice(toIdx, 0, moved);
+    setTasks(arr);
+    setDragId(null); setDragOver(null);
+  }
+
+  const allTasks = tasks || [];
+  const filtered = allTasks.filter(t => {
+    const matchFilter = filter === "pendentes" ? !t.done : filter === "concluídas" ? t.done : true;
+    const matchTag = filterTag ? (t.tags || []).includes(filterTag) : true;
+    return matchFilter && matchTag;
+  });
+  const counts = { total: allTasks.length, done: allTasks.filter(t => t.done).length };
+
+  if (loading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Stats */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
         {[{ label: "Total", val: counts.total, color: "#6366f1" }, { label: "Pendentes", val: counts.total - counts.done, color: "#f59e0b" }, { label: "Concluídas", val: counts.done, color: "#22c55e" }].map(s => (
           <div key={s.label} style={{ background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 12, padding: "12px 20px", display: "flex", flexDirection: "column", gap: 2, minWidth: 100 }}>
@@ -586,6 +635,8 @@ function TasksTab() {
           <span style={{ fontFamily: "'Sora',sans-serif", fontWeight: 700, color: "#22c55e", fontSize: 14 }}>{counts.total ? Math.round((counts.done / counts.total) * 100) : 0}%</span>
         </div>
       </div>
+
+      {/* Nova tarefa */}
       <div style={S.card}>
         <div style={S.cardHeader}>Nova Tarefa</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 12, padding: "16px 20px" }}>
@@ -593,35 +644,75 @@ function TasksTab() {
           <select value={newTask.priority} onChange={e => setNewTask(n => ({ ...n, priority: e.target.value }))} style={S.input}>{PRIORITIES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}</select>
           <input type="date" value={newTask.date} onChange={e => setNewTask(n => ({ ...n, date: e.target.value }))} style={S.input} />
         </div>
+        <div style={{ padding: "0 20px 12px" }}>
+          <label style={S.label}>Etiquetas</label>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+            {TAGS.map(tag => { const active = (newTask.tags || []).includes(tag.value); return (<button key={tag.value} onClick={() => toggleNewTag(tag.value)} style={{ padding: "4px 12px", borderRadius: 99, border: `2px solid ${active ? tag.color : "#e2e8f0"}`, background: active ? tag.color : "transparent", color: active ? "#fff" : "#64748b", fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{tag.label}</button>); })}
+          </div>
+        </div>
         <div style={{ padding: "0 20px 16px", display: "flex", gap: 10, alignItems: "center" }}>
           <button onClick={addTask} style={S.btnPrimary}>+ Adicionar</button>
-          {newTask.text.trim() && (<a href={waLink(`🏗️ Nova tarefa:\n"${newTask.text}"\nPrioridade: ${PRIORITIES.find(p => p.value === newTask.priority)?.label}${newTask.date ? `\nData: ${newTask.date}` : ""}\n\nhttps://obracontrol-beta.vercel.app`)} target="_blank" rel="noreferrer" style={{ padding: "9px 14px", background: "#25d366", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>📲 WhatsApp</a>)}
+          {newTask.text.trim() && (
+            <a href={waLink(`🏗️ Nova tarefa na obra:\n"${newTask.text}"\nPrioridade: ${PRIORITIES.find(p => p.value === newTask.priority)?.label}${newTask.date ? `\nData: ${newTask.date}` : ""}${(newTask.tags || []).length > 0 ? `\nEtiquetas: ${(newTask.tags || []).map(v => TAGS.find(t => t.value === v)?.label).join(", ")}` : ""}\n\nhttps://obracontrol-beta.vercel.app`)} target="_blank" rel="noreferrer" style={{ padding: "9px 14px", background: "#25d366", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>📲 WhatsApp</a>
+          )}
         </div>
       </div>
-      <div style={{ display: "flex", gap: 8 }}>
+
+      {/* Filtros */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {["todas", "pendentes", "concluídas"].map(f => (<button key={f} onClick={() => setFilter(f)} style={{ ...S.btnGhost, background: filter === f ? "#1e293b" : "transparent", color: filter === f ? "#fff" : "#64748b", textTransform: "capitalize" }}>{f}</button>))}
+        <div style={{ width: 1, background: "#e2e8f0", margin: "0 4px" }} />
+        <button onClick={() => setFilterTag("")} style={{ ...S.btnGhost, background: !filterTag ? "#eef2ff" : "transparent", color: !filterTag ? "#6366f1" : "#94a3b8", fontSize: 12 }}>Todas</button>
+        {TAGS.map(tag => (<button key={tag.value} onClick={() => setFilterTag(filterTag === tag.value ? "" : tag.value)} style={{ padding: "6px 12px", borderRadius: 99, border: `1.5px solid ${filterTag === tag.value ? tag.color : "#e2e8f0"}`, background: filterTag === tag.value ? tag.color : "transparent", color: filterTag === tag.value ? "#fff" : "#64748b", fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{tag.label}</button>))}
       </div>
+
+      <div style={{ color: "#94a3b8", fontSize: 12, fontFamily: "'Sora',sans-serif" }}>↕️ Arrasta para reordenar · 🏷️ para editar etiquetas</div>
+
+      {/* Lista */}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {filtered.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>Nenhuma tarefa.</div>}
         {filtered.map(task => {
           const pri = PRIORITIES.find(p => p.value === task.priority);
           const isOpen = obsOpen[task.id];
+          const taskTags = TAGS.filter(t => (task.tags || []).includes(t.value));
+          const isDragging = dragId === task.id;
+          const isOver = dragOver === task.id;
+          const isEditingTags = editTagsId === task.id;
           return (
-            <div key={task.id} style={{ ...S.card, padding: 0, border: task.done ? "1.5px solid #bbf7d0" : "1.5px solid #e2e8f0" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px" }}>
+            <div key={task.id} draggable onDragStart={() => onDragStart(task.id)} onDragOver={e => onDragOver(e, task.id)} onDrop={() => onDrop(task.id)} onDragEnd={() => { setDragId(null); setDragOver(null); }} style={{ ...S.card, padding: 0, border: isOver ? "2px dashed #6366f1" : task.done ? "1.5px solid #bbf7d0" : "1.5px solid #e2e8f0", opacity: isDragging ? 0.4 : 1, transition: "opacity 0.2s, border 0.15s" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px" }}>
+                <span style={{ color: "#cbd5e1", fontSize: 16, cursor: "grab", flexShrink: 0 }}>⠿</span>
                 <button onClick={() => toggleDone(task.id)} style={{ width: 24, height: 24, borderRadius: "50%", border: `2.5px solid ${task.done ? "#22c55e" : "#cbd5e1"}`, background: task.done ? "#22c55e" : "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   {task.done && <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
                 </button>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontFamily: "'Sora',sans-serif", fontWeight: 500, color: "#1e293b", textDecoration: task.done ? "line-through" : "none", fontSize: 14 }}>{task.text}</div>
+                  {taskTags.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 5 }}>
+                      {taskTags.map(tag => (<span key={tag.value} style={{ padding: "2px 8px", borderRadius: 99, background: tag.color + "22", color: tag.color, fontFamily: "'Sora',sans-serif", fontSize: 10, fontWeight: 700 }}>{tag.label}</span>))}
+                    </div>
+                  )}
                   {task.done && task.doneAt && <div style={{ fontSize: 11, color: "#22c55e", fontFamily: "'Sora',sans-serif", marginTop: 2 }}>✓ {new Date(task.doneAt).toLocaleDateString("pt-PT", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</div>}
                   {task.done && task.doneObs && <div style={{ fontSize: 12, color: "#16a34a", fontFamily: "'Sora',sans-serif", fontStyle: "italic", marginTop: 2 }}>💬 {task.doneObs}</div>}
                 </div>
                 <span style={{ padding: "2px 9px", borderRadius: 99, background: pri?.color + "22", color: pri?.color, fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{pri?.label}</span>
                 {task.date && <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 11, color: "#94a3b8", flexShrink: 0 }}>📅 {task.date}</span>}
+                {/* Edit tags btn */}
+                <button onClick={() => setEditTagsId(isEditingTags ? null : task.id)} style={{ ...S.btnSmall, background: isEditingTags ? "#eef2ff" : "#f1f5f9", color: isEditingTags ? "#6366f1" : "#94a3b8", fontSize: 12, flexShrink: 0 }} title="Editar etiquetas">🏷️</button>
+                {/* WhatsApp */}
+                <a href={waLink(`🏗️ Tarefa:\n"${task.text}"\nPrioridade: ${pri?.label}${task.date ? `\nData: ${task.date}` : ""}${taskTags.length > 0 ? `\nEtiquetas: ${taskTags.map(t => t.label).join(", ")}` : ""}\n\nhttps://obracontrol-beta.vercel.app`)} target="_blank" rel="noreferrer" style={{ padding: "4px 8px", background: "#25d366", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 11, textDecoration: "none", flexShrink: 0 }}>📲</a>
                 {task.done && <button onClick={() => setObsOpen(o => ({ ...o, [task.id]: !o[task.id] }))} style={{ ...S.btnSmall, background: isOpen ? "#dcfce7" : "#f1f5f9", color: "#16a34a", fontSize: 13 }}>💬</button>}
                 <ConfirmDeleteBtn onConfirm={() => setTasks((tasks || []).filter(t => t.id !== task.id))} message={`Apagar "${task.text}"?`} />
               </div>
+              {/* Edit tags panel */}
+              {isEditingTags && (
+                <div style={{ padding: "8px 16px 12px", borderTop: "1px solid #f1f5f9", background: "#fafbff" }}>
+                  <div style={{ fontSize: 11, color: "#64748b", fontFamily: "'Sora',sans-serif", fontWeight: 700, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>Editar Etiquetas</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {TAGS.map(tag => { const active = (task.tags || []).includes(tag.value); return (<button key={tag.value} onClick={() => toggleTaskTag(task.id, tag.value)} style={{ padding: "4px 10px", borderRadius: 99, border: `2px solid ${active ? tag.color : "#e2e8f0"}`, background: active ? tag.color : "transparent", color: active ? "#fff" : "#64748b", fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{tag.label}</button>); })}
+                  </div>
+                </div>
+              )}
               {task.done && isOpen && (
                 <div style={{ padding: "0 16px 12px", borderTop: "1px solid #dcfce7" }}>
                   <input placeholder="Observação sobre a conclusão…" value={task.doneObs || ""} onChange={e => updateDoneObs(task.id, e.target.value)} style={{ ...S.input, fontSize: 13, background: "#f0fdf4", border: "1.5px solid #bbf7d0", marginTop: 10 }} />
@@ -630,6 +721,103 @@ function TasksTab() {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ─── NOTAS SECTION ────────────────────────────────────────────
+function NotasSection() {
+  const [notes, setNotes, loading] = useFirebase("notes", []);
+  const [newNote, setNewNote] = useState({ text: "", date: todayStr() });
+  const [search, setSearch] = useState("");
+  const [editId, setEditId] = useState(null);
+  const [editText, setEditText] = useState("");
+
+  function addNote() {
+    if (!newNote.text.trim()) return;
+    setNotes([{ ...newNote, id: genId(), createdAt: new Date().toISOString() }, ...(notes || [])]);
+    setNewNote({ text: "", date: todayStr() });
+  }
+  function deleteNote(id) { setNotes((notes || []).filter(n => n.id !== id)); }
+  function startEdit(note) { setEditId(note.id); setEditText(note.text); }
+  function saveEdit(id) { setNotes((notes || []).map(n => n.id === id ? { ...n, text: editText } : n)); setEditId(null); }
+
+  const allNotes = notes || [];
+  const filtered = allNotes.filter(n => n.text.toLowerCase().includes(search.toLowerCase()) || (n.date || "").includes(search));
+
+  if (loading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Nova nota */}
+      <div style={S.card}>
+        <div style={S.cardHeader}>Nova Nota</div>
+        <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
+          <div>
+            <label style={S.label}>Data</label>
+            <input type="date" value={newNote.date} onChange={e => setNewNote(n => ({ ...n, date: e.target.value }))} style={{ ...S.input, maxWidth: 180 }} />
+          </div>
+          <div>
+            <label style={S.label}>Nota *</label>
+            <textarea
+              value={newNote.text}
+              onChange={e => setNewNote(n => ({ ...n, text: e.target.value }))}
+              placeholder="Escreve aqui a situação ou ocorrência da obra… Ex: Falta de energia no bloco B, Visita do fiscal às 14h, Chuva intensa parou os trabalhos…"
+              rows={3}
+              style={{ ...S.input, resize: "vertical", lineHeight: 1.6, fontSize: 13 }}
+            />
+          </div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <button onClick={addNote} style={S.btnPrimary}>+ Adicionar Nota</button>
+            {newNote.text.trim() && (
+              <a href={waLink(`📝 Nota de obra:\n"${newNote.text}"\nData: ${newNote.date}\n\nhttps://obracontrol-beta.vercel.app`)} target="_blank" rel="noreferrer" style={{ padding: "9px 14px", background: "#25d366", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>📲 WhatsApp</a>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Pesquisa */}
+      <input placeholder="🔍 Pesquisar notas…" value={search} onChange={e => setSearch(e.target.value)} style={S.input} />
+
+      {/* Stats */}
+      <div style={{ fontFamily: "'Sora',sans-serif", fontSize: 13, color: "#94a3b8" }}>
+        {filtered.length} nota(s) {search ? `para "${search}"` : "no total"}
+      </div>
+
+      {/* Lista de notas */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {filtered.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>Nenhuma nota.</div>}
+        {filtered.map(note => (
+          <div key={note.id} style={{ ...S.card, padding: 0, border: "1.5px solid #e2e8f0" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "14px 16px" }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#f59e0b", flexShrink: 0, marginTop: 5 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {editId === note.id ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <textarea value={editText} onChange={e => setEditText(e.target.value)} rows={3} style={{ ...S.input, resize: "vertical", fontSize: 13, lineHeight: 1.6 }} autoFocus />
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={() => saveEdit(note.id)} style={{ ...S.btnPrimary, padding: "6px 14px", fontSize: 13 }}>✓ Guardar</button>
+                      <button onClick={() => setEditId(null)} style={{ ...S.btnGhost, padding: "6px 12px", fontSize: 13 }}>Cancelar</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontFamily: "'Sora',sans-serif", fontSize: 14, color: "#1e293b", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{note.text}</div>
+                )}
+                <div style={{ marginTop: 6, display: "flex", gap: 12, alignItems: "center" }}>
+                  <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 11, color: "#94a3b8" }}>
+                    📅 {new Date((note.date || note.createdAt?.slice(0,10)) + "T12:00:00").toLocaleDateString("pt-PT", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}
+                  </span>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                <a href={waLink(`📝 Nota de obra:\n"${note.text}"\nData: ${note.date}\n\nhttps://obracontrol-beta.vercel.app`)} target="_blank" rel="noreferrer" style={{ padding: "4px 8px", background: "#25d366", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 11, textDecoration: "none" }}>📲</a>
+                {editId !== note.id && <button onClick={() => startEdit(note)} style={{ ...S.btnSmall, fontSize: 13 }}>✏️</button>}
+                <ConfirmDeleteBtn onConfirm={() => deleteNote(note.id)} message="Apagar esta nota?" />
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -659,7 +847,7 @@ function StockTab() {
   const summaryList = Object.values(summary).sort((a, b) => a.name.localeCompare(b.name));
   const byDay = {}; filtered.forEach(e => { if (!byDay[e.date]) byDay[e.date] = []; byDay[e.date].push(e); });
   const days = Object.keys(byDay).sort((a, b) => b.localeCompare(a));
-  function doExportEntries() { exportToCSV([["Data", "Código", "Material", "Quantidade", "Unidade", "Observação"], ...filtered.map(e => [e.date, e.code || "", e.name, e.qty, e.unit, e.obs || ""])], `materiais_gastos.csv`); }
+  function doExportEntries() { exportToCSV([["Data", "Código", "Material", "Quantidade", "Unidade", "Observações"], ...filtered.map(e => [e.date, e.code || "", e.name, e.qty, e.unit, e.obs || ""])], `materiais_gastos.csv`); }
   if (loading || catLoading || invLoading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -733,15 +921,47 @@ function AttendanceTab() {
   const [showManageWorkers, setShowManageWorkers] = useState(false);
   const [newWorkerName, setNewWorkerName] = useState("");
   const [filterFrom, setFilterFrom] = useState(""); const [filterTo, setFilterTo] = useState("");
-  const allWorkers = workers || []; const allAttendance = attendance || [];
-  const dayRecord = allAttendance.find(a => a.date === selDate) || { date: selDate, present: [] };
+
+  const allWorkers = workers || [];
+  const allAttendance = attendance || [];
+  const dayRecord = allAttendance.find(a => a.date === selDate) || { date: selDate, present: [], works: "" };
   const present = dayRecord.present || [];
-  function toggleWorker(wid) { const isPresent = present.includes(wid); const newPresent = isPresent ? present.filter(id => id !== wid) : [...present, wid]; const newRecord = { ...dayRecord, date: selDate, present: newPresent }; const exists = allAttendance.find(a => a.date === selDate); setAttendance(exists ? allAttendance.map(a => a.date === selDate ? newRecord : a) : [...allAttendance, newRecord]); }
+  const works = dayRecord.works || "";
+
+  function updateDayRecord(updates) {
+    const newRecord = { ...dayRecord, date: selDate, ...updates };
+    const exists = allAttendance.find(a => a.date === selDate);
+    setAttendance(exists ? allAttendance.map(a => a.date === selDate ? newRecord : a) : [...allAttendance, newRecord]);
+  }
+
+  function toggleWorker(wid) {
+    const isPresent = present.includes(wid);
+    const newPresent = isPresent ? present.filter(id => id !== wid) : [...present, wid];
+    updateDayRecord({ present: newPresent });
+  }
+
+  function updateWorks(val) { updateDayRecord({ works: val }); }
+
   function addWorker() { if (!newWorkerName.trim()) return; setWorkers([...allWorkers, { id: genId(), name: newWorkerName.trim() }]); setNewWorkerName(""); }
   function deleteWorker(id) { setWorkers(allWorkers.filter(w => w.id !== id)); }
-  const histFiltered = allAttendance.filter(a => { const mf = filterFrom ? a.date >= filterFrom : true; const mt = filterTo ? a.date <= filterTo : true; return mf && mt && (a.present || []).length > 0; }).sort((a, b) => b.date.localeCompare(a.date));
-  function doExport() { const rows = [["Data", "Funcionário"]]; histFiltered.forEach(a => { allWorkers.filter(w => (a.present || []).includes(w.id)).forEach(w => rows.push([a.date, w.name])); }); exportToCSV(rows, `folha_ponto.csv`); }
+
+  const histFiltered = allAttendance.filter(a => {
+    const mf = filterFrom ? a.date >= filterFrom : true;
+    const mt = filterTo ? a.date <= filterTo : true;
+    return mf && mt && (a.present || []).length > 0;
+  }).sort((a, b) => b.date.localeCompare(a.date));
+
+  function doExport() {
+    const rows = [["Data", "Funcionário", "Trabalhos Realizados"]];
+    histFiltered.forEach(a => {
+      const presentWorkers = allWorkers.filter(w => (a.present || []).includes(w.id));
+      presentWorkers.forEach(w => rows.push([a.date, w.name, a.works || ""]));
+    });
+    exportToCSV(rows, `folha_ponto.csv`);
+  }
+
   if (loading || wLoading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       {showManageWorkers && (
@@ -756,6 +976,7 @@ function AttendanceTab() {
           </div>
         </div>
       )}
+
       <div style={S.card}>
         <div style={{ ...S.cardHeader, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
           <span>👷 Folha de Ponto</span>
@@ -765,13 +986,41 @@ function AttendanceTab() {
           </div>
         </div>
         <div style={{ padding: "14px 18px" }}>
-          <div style={{ marginBottom: 12, fontFamily: "'Sora',sans-serif", fontSize: 13, color: "#64748b" }}>{new Date(selDate + "T12:00:00").toLocaleDateString("pt-PT", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })} — <strong style={{ color: "#22c55e" }}>{present.length} presente(s)</strong> / {allWorkers.length}</div>
+          <div style={{ marginBottom: 12, fontFamily: "'Sora',sans-serif", fontSize: 13, color: "#64748b" }}>
+            {new Date(selDate + "T12:00:00").toLocaleDateString("pt-PT", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })} — <strong style={{ color: "#22c55e" }}>{present.length} presente(s)</strong> / {allWorkers.length}
+          </div>
+
           {allWorkers.length === 0 && <div style={{ textAlign: "center", padding: 20, color: "#94a3b8", fontFamily: "'Sora',sans-serif", fontSize: 13 }}>Nenhum funcionário.</div>}
+
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {allWorkers.map(w => { const isPresent = present.includes(w.id); return (<button key={w.id} onClick={() => toggleWorker(w.id)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", borderRadius: 12, border: `2px solid ${isPresent ? "#22c55e" : "#e2e8f0"}`, background: isPresent ? "#f0fdf4" : "#f8fafc", cursor: "pointer", textAlign: "left" }}><div style={{ width: 28, height: 28, borderRadius: "50%", border: `2.5px solid ${isPresent ? "#22c55e" : "#cbd5e1"}`, background: isPresent ? "#22c55e" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{isPresent && <svg width="14" height="14" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}</div><span style={{ flex: 1, fontFamily: "'Sora',sans-serif", fontWeight: 600, fontSize: 15, color: isPresent ? "#16a34a" : "#475569" }}>{w.name}</span><span style={{ padding: "3px 12px", borderRadius: 99, fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, background: isPresent ? "#dcfce7" : "#f1f5f9", color: isPresent ? "#16a34a" : "#94a3b8" }}>{isPresent ? "✓ Presente" : "Ausente"}</span></button>); })}
+            {allWorkers.map(w => {
+              const isPresent = present.includes(w.id);
+              return (
+                <button key={w.id} onClick={() => toggleWorker(w.id)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", borderRadius: 12, border: `2px solid ${isPresent ? "#22c55e" : "#e2e8f0"}`, background: isPresent ? "#f0fdf4" : "#f8fafc", cursor: "pointer", textAlign: "left" }}>
+                  <div style={{ width: 28, height: 28, borderRadius: "50%", border: `2.5px solid ${isPresent ? "#22c55e" : "#cbd5e1"}`, background: isPresent ? "#22c55e" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    {isPresent && <svg width="14" height="14" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                  </div>
+                  <span style={{ flex: 1, fontFamily: "'Sora',sans-serif", fontWeight: 600, fontSize: 15, color: isPresent ? "#16a34a" : "#475569" }}>{w.name}</span>
+                  <span style={{ padding: "3px 12px", borderRadius: 99, fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, background: isPresent ? "#dcfce7" : "#f1f5f9", color: isPresent ? "#16a34a" : "#94a3b8" }}>{isPresent ? "✓ Presente" : "Ausente"}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Trabalhos realizados no dia */}
+          <div style={{ marginTop: 18, borderTop: "1px solid #f1f5f9", paddingTop: 16 }}>
+            <label style={S.label}>🔧 Trabalhos Realizados no Dia</label>
+            <textarea
+              value={works}
+              onChange={e => updateWorks(e.target.value)}
+              placeholder="Descreve os trabalhos realizados hoje… Ex: Passagem de cabos no piso 2, instalação de tomadas no quarto 3…"
+              rows={3}
+              style={{ ...S.input, resize: "vertical", lineHeight: 1.5, fontSize: 13 }}
+            />
           </div>
         </div>
       </div>
+
       <div style={S.card}>
         <div style={{ ...S.cardHeader, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
           <span>📋 Histórico</span>
@@ -782,47 +1031,726 @@ function AttendanceTab() {
           <div><label style={S.label}>Até</label><input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} style={S.input} /></div>
           {(filterFrom || filterTo) && <button onClick={() => { setFilterFrom(""); setFilterTo(""); }} style={{ ...S.btnGhost, alignSelf: "flex-end" }}>✕</button>}
         </div>
-        {histFiltered.length === 0 ? <div style={{ textAlign: "center", padding: 30, color: "#94a3b8", fontFamily: "'Sora',sans-serif", fontSize: 13 }}>Nenhum registo.</div> : histFiltered.map(a => { const presentNames = allWorkers.filter(w => (a.present || []).includes(w.id)); return (<div key={a.date} style={{ padding: "12px 18px", borderTop: "1px solid #f1f5f9" }}><div style={{ fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, color: "#1e293b", marginBottom: 8 }}>📅 {new Date(a.date + "T12:00:00").toLocaleDateString("pt-PT", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}<span style={{ marginLeft: 10, fontSize: 12, color: "#22c55e", fontWeight: 600 }}>{presentNames.length} presente(s)</span></div><div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{presentNames.map(n => <span key={n.id} style={{ padding: "3px 10px", borderRadius: 99, background: "#dcfce7", color: "#16a34a", fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 600 }}>✓ {n.name}</span>)}</div></div>); })}
+        {histFiltered.length === 0
+          ? <div style={{ textAlign: "center", padding: 30, color: "#94a3b8", fontFamily: "'Sora',sans-serif", fontSize: 13 }}>Nenhum registo.</div>
+          : histFiltered.map(a => {
+              const presentNames = allWorkers.filter(w => (a.present || []).includes(w.id));
+              return (
+                <div key={a.date} style={{ padding: "14px 18px", borderTop: "1px solid #f1f5f9" }}>
+                  <div style={{ fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, color: "#1e293b", marginBottom: 8 }}>
+                    📅 {new Date(a.date + "T12:00:00").toLocaleDateString("pt-PT", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}
+                    <span style={{ marginLeft: 10, fontSize: 12, color: "#22c55e", fontWeight: 600 }}>{presentNames.length} presente(s)</span>
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: a.works ? 8 : 0 }}>
+                    {presentNames.map(n => <span key={n.id} style={{ padding: "3px 10px", borderRadius: 99, background: "#dcfce7", color: "#16a34a", fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 600 }}>✓ {n.name}</span>)}
+                  </div>
+                  {a.works && (
+                    <div style={{ marginTop: 6, padding: "8px 12px", background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0", fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#475569" }}>
+                      🔧 <em>{a.works}</em>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+        }
       </div>
     </div>
   );
 }
+
+// ─── ESQUEMAS TAB ─────────────────────────────────────────────
+const ELEMENT_ICONS = ["⚡","🔌","💡","🔲","🔀","📦","🔧","⬛","⭕","📍","🔶","🔷"];
+
+function SchemaCanvas({ schema, onUpdate }) {
+  const canvasRef = useRef(null);
+  const [dragging, setDragging] = useState(null); // { id, offsetX, offsetY }
+  const [connecting, setConnecting] = useState(null); // id of source element
+  const [selected, setSelected] = useState(null);
+  const [addingEl, setAddingEl] = useState(false);
+  const [newEl, setNewEl] = useState({ label: "", icon: "🔌", color: "#6366f1" });
+  const [editEl, setEditEl] = useState(null);
+
+  const elements = schema.elements || [];
+  const connections = schema.connections || [];
+
+  function addElement() {
+    if (!newEl.label.trim()) return;
+    const el = { id: genId(), label: newEl.label.trim(), icon: newEl.icon, color: newEl.color, x: 80 + Math.random() * 200, y: 60 + Math.random() * 120 };
+    onUpdate({ ...schema, elements: [...elements, el] });
+    setNewEl({ label: "", icon: "🔌", color: "#6366f1" });
+    setAddingEl(false);
+  }
+
+  function deleteElement(id) {
+    onUpdate({ ...schema, elements: elements.filter(e => e.id !== id), connections: connections.filter(c => c.from !== id && c.to !== id) });
+    setSelected(null);
+  }
+
+  function deleteConnection(idx) {
+    const c = [...connections]; c.splice(idx, 1);
+    onUpdate({ ...schema, connections: c });
+  }
+
+  function handleMouseDown(e, id) {
+    e.stopPropagation();
+    if (connecting) {
+      if (connecting !== id) {
+        const already = connections.find(c => (c.from === connecting && c.to === id) || (c.from === id && c.to === connecting));
+        if (!already) onUpdate({ ...schema, connections: [...connections, { id: genId(), from: connecting, to: id }] });
+      }
+      setConnecting(null);
+      return;
+    }
+    const rect = canvasRef.current.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const el = elements.find(el => el.id === id);
+    setDragging({ id, offsetX: clientX - rect.left - el.x, offsetY: clientY - rect.top - el.y });
+    setSelected(id);
+  }
+
+  function handleMouseMove(e) {
+    if (!dragging) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const x = Math.max(0, Math.min(clientX - rect.left - dragging.offsetX, rect.width - 70));
+    const y = Math.max(0, Math.min(clientY - rect.top - dragging.offsetY, rect.height - 60));
+    onUpdate({ ...schema, elements: elements.map(el => el.id === dragging.id ? { ...el, x, y } : el) });
+  }
+
+  function handleMouseUp() { setDragging(null); }
+
+  function getCenter(el) { return { x: el.x + 35, y: el.y + 28 }; }
+
+  const selEl = elements.find(e => e.id === selected);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {/* Toolbar */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <button onClick={() => setAddingEl(v => !v)} style={{ ...S.btnPrimary, fontSize: 13, padding: "7px 14px" }}>+ Elemento</button>
+        <button onClick={() => setConnecting(connecting ? null : "pick")} style={{ ...S.btnGhost, fontSize: 13, padding: "7px 14px", border: connecting ? "2px solid #6366f1" : undefined, color: connecting ? "#6366f1" : undefined }}>
+          {connecting ? "🔗 Clica dois elementos para ligar" : "🔗 Ligar"}
+        </button>
+        {selected && (
+          <>
+            <button onClick={() => setEditEl(selEl)} style={{ ...S.btnGhost, fontSize: 13, padding: "7px 12px" }}>✏️ Editar</button>
+            <ConfirmDeleteBtn onConfirm={() => deleteElement(selected)} message={`Apagar "${selEl?.label}"?`} style={{ padding: "7px 12px", background: "#fff1f2", border: "1.5px solid #fecaca", borderRadius: 10, color: "#dc2626", fontSize: 13 }} label="🗑 Apagar" />
+          </>
+        )}
+        {connecting && connecting !== "pick" && <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#6366f1" }}>Clica no destino…</span>}
+      </div>
+
+      {/* Add element form */}
+      {addingEl && (
+        <div style={{ ...S.card, padding: 0 }}>
+          <div style={S.cardHeader}>Novo Elemento</div>
+          <div style={{ padding: "14px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
+            <div><label style={S.label}>Nome *</label><input value={newEl.label} onChange={e => setNewEl(n => ({ ...n, label: e.target.value }))} onKeyDown={e => e.key === "Enter" && addElement()} style={S.input} placeholder="Ex: Quadro, Tomada A3…" /></div>
+            <div>
+              <label style={S.label}>Ícone</label>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {ELEMENT_ICONS.map(ic => (<button key={ic} onClick={() => setNewEl(n => ({ ...n, icon: ic }))} style={{ width: 38, height: 38, borderRadius: 8, border: `2px solid ${newEl.icon === ic ? "#6366f1" : "#e2e8f0"}`, background: newEl.icon === ic ? "#eef2ff" : "#f8fafc", fontSize: 20, cursor: "pointer" }}>{ic}</button>))}
+              </div>
+            </div>
+            <div>
+              <label style={S.label}>Cor</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                {["#6366f1","#ef4444","#f59e0b","#22c55e","#0ea5e9","#8b5cf6","#ec4899","#1e293b"].map(c => (<button key={c} onClick={() => setNewEl(n => ({ ...n, color: c }))} style={{ width: 28, height: 28, borderRadius: "50%", background: c, border: `3px solid ${newEl.color === c ? "#1e293b" : "transparent"}`, cursor: "pointer" }} />))}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={addElement} style={S.btnPrimary}>Adicionar</button>
+              <button onClick={() => setAddingEl(false)} style={S.btnGhost}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit element form */}
+      {editEl && (
+        <div style={{ ...S.card, padding: 0 }}>
+          <div style={S.cardHeader}>Editar Elemento</div>
+          <div style={{ padding: "14px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
+            <div><label style={S.label}>Nome</label><input value={editEl.label} onChange={e => setEditEl(el => ({ ...el, label: e.target.value }))} style={S.input} /></div>
+            <div>
+              <label style={S.label}>Ícone</label>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {ELEMENT_ICONS.map(ic => (<button key={ic} onClick={() => setEditEl(el => ({ ...el, icon: ic }))} style={{ width: 38, height: 38, borderRadius: 8, border: `2px solid ${editEl.icon === ic ? "#6366f1" : "#e2e8f0"}`, background: editEl.icon === ic ? "#eef2ff" : "#f8fafc", fontSize: 20, cursor: "pointer" }}>{ic}</button>))}
+              </div>
+            </div>
+            <div>
+              <label style={S.label}>Cor</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                {["#6366f1","#ef4444","#f59e0b","#22c55e","#0ea5e9","#8b5cf6","#ec4899","#1e293b"].map(c => (<button key={c} onClick={() => setEditEl(el => ({ ...el, color: c }))} style={{ width: 28, height: 28, borderRadius: "50%", background: c, border: `3px solid ${editEl.color === c ? "#1e293b" : "transparent"}`, cursor: "pointer" }} />))}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => { onUpdate({ ...schema, elements: elements.map(e => e.id === editEl.id ? editEl : e) }); setEditEl(null); }} style={S.btnPrimary}>✓ Guardar</button>
+              <button onClick={() => setEditEl(null)} style={S.btnGhost}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Canvas */}
+      <div
+        ref={canvasRef}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onTouchMove={handleMouseMove}
+        onTouchEnd={handleMouseUp}
+        onClick={() => { if (!connecting) setSelected(null); }}
+        style={{ position: "relative", width: "100%", height: 380, background: "#f8fafc", borderRadius: 14, border: "1.5px solid #e2e8f0", overflow: "hidden", cursor: connecting ? "crosshair" : "default" }}
+      >
+        {/* Grid dots */}
+        <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
+          <defs>
+            <pattern id="grid" width="30" height="30" patternUnits="userSpaceOnUse">
+              <circle cx="1" cy="1" r="1" fill="#e2e8f0" />
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#grid)" />
+          {/* Connection lines */}
+          {connections.map((conn, idx) => {
+            const from = elements.find(e => e.id === conn.from);
+            const to = elements.find(e => e.id === conn.to);
+            if (!from || !to) return null;
+            const f = getCenter(from); const t = getCenter(to);
+            const mx = (f.x + t.x) / 2; const my = (f.y + t.y) / 2;
+            return (
+              <g key={conn.id || idx}>
+                <line x1={f.x} y1={f.y} x2={t.x} y2={t.y} stroke="#6366f1" strokeWidth="2.5" strokeDasharray="6 3" opacity="0.7" />
+                <circle cx={mx} cy={my} r="8" fill="#fff" stroke="#6366f1" strokeWidth="1.5" style={{ cursor: "pointer" }} onClick={e => { e.stopPropagation(); deleteConnection(idx); }} />
+                <text x={mx} y={my + 4} textAnchor="middle" fontSize="10" fill="#ef4444" style={{ cursor: "pointer", userSelect: "none" }} onClick={e => { e.stopPropagation(); deleteConnection(idx); }}>✕</text>
+              </g>
+            );
+          })}
+        </svg>
+
+        {/* Elements */}
+        {elements.map(el => (
+          <div
+            key={el.id}
+            onMouseDown={e => { if (connecting === "pick") { setConnecting(el.id); } else { handleMouseDown(e, el.id); } }}
+            onTouchStart={e => handleMouseDown(e, el.id)}
+            onClick={e => { e.stopPropagation(); if (connecting && connecting !== "pick" && connecting !== el.id) { const already = connections.find(c => (c.from === connecting && c.to === el.id) || (c.from === el.id && c.to === connecting)); if (!already) onUpdate({ ...schema, connections: [...connections, { id: genId(), from: connecting, to: el.id }] }); setConnecting(null); } else if (connecting === "pick") { setConnecting(el.id); } else { setSelected(el.id); } }}
+            style={{ position: "absolute", left: el.x, top: el.y, width: 70, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, cursor: dragging?.id === el.id ? "grabbing" : "grab", userSelect: "none", zIndex: selected === el.id ? 10 : 1 }}
+          >
+            <div style={{ width: 52, height: 52, borderRadius: 12, background: el.color + "22", border: `2.5px solid ${selected === el.id ? el.color : el.color + "66"}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, boxShadow: selected === el.id ? `0 0 0 3px ${el.color}44` : "none", transition: "box-shadow 0.2s" }}>
+              {el.icon}
+            </div>
+            <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 10, fontWeight: 700, color: "#1e293b", textAlign: "center", background: "rgba(255,255,255,0.9)", padding: "1px 5px", borderRadius: 4, maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{el.label}</span>
+          </div>
+        ))}
+
+        {elements.length === 0 && (
+          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontFamily: "'Sora',sans-serif", fontSize: 13, gap: 8 }}>
+            <span style={{ fontSize: 32 }}>⚡</span>
+            <span>Clica "+ Elemento" para começar</span>
+          </div>
+        )}
+
+        {/* Legend */}
+        <div style={{ position: "absolute", bottom: 8, right: 10, fontFamily: "'Sora',sans-serif", fontSize: 10, color: "#94a3b8" }}>
+          Arrasta · Clica para selecionar · ✕ nas linhas para apagar
+        </div>
+      </div>
+
+      {/* Connections list */}
+      {connections.length > 0 && (
+        <div style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#64748b", display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {connections.map((conn, idx) => {
+            const from = elements.find(e => e.id === conn.from);
+            const to = elements.find(e => e.id === conn.to);
+            if (!from || !to) return null;
+            return (<span key={idx} style={{ padding: "2px 8px", borderRadius: 99, background: "#eef2ff", color: "#6366f1", fontWeight: 600 }}>{from.icon} {from.label} → {to.icon} {to.label}</span>);
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SchemasTab() {
+  const [schemas, setSchemas, loading] = useFirebase("schemas", []);
+  const [activeId, setActiveId] = useState(null);
+  const [addingSchema, setAddingSchema] = useState(false);
+  const [newSchemaName, setNewSchemaName] = useState("");
+
+  const allSchemas = schemas || [];
+  const active = allSchemas.find(s => s.id === activeId);
+
+  function addSchema() {
+    if (!newSchemaName.trim()) return;
+    const s = { id: genId(), name: newSchemaName.trim(), elements: [], connections: [] };
+    setSchemas([...allSchemas, s]);
+    setActiveId(s.id);
+    setNewSchemaName(""); setAddingSchema(false);
+  }
+
+  function updateSchema(updated) { setSchemas(allSchemas.map(s => s.id === updated.id ? updated : s)); }
+  function deleteSchema(id) { setSchemas(allSchemas.filter(s => s.id !== id)); if (activeId === id) setActiveId(null); }
+
+  if (loading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Header */}
+      <div style={{ background: "#1e293b", borderRadius: 16, padding: "18px 20px", display: "flex", alignItems: "center", gap: 14 }}>
+        <span style={{ fontSize: 26 }}>📐</span>
+        <div>
+          <div style={{ color: "#fff", fontWeight: 800, fontSize: 17, fontFamily: "'Sora',sans-serif" }}>Esquemas Elétricos</div>
+          <div style={{ color: "#64748b", fontSize: 12, fontFamily: "'Sora',sans-serif" }}>Diagrama de percurso de cabos por divisão</div>
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 5 }}>
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#22c55e", animation: "pulse 2s infinite" }} />
+          <span style={{ color: "#22c55e", fontSize: 11, fontFamily: "'Sora',sans-serif", fontWeight: 700 }}>LIVE</span>
+        </div>
+      </div>
+
+      {/* Room selector */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        {allSchemas.map(s => (
+          <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 0 }}>
+            <button onClick={() => setActiveId(s.id)} style={{ padding: "8px 16px", borderRadius: activeId === s.id ? "10px 0 0 10px" : 10, border: `2px solid ${activeId === s.id ? "#6366f1" : "#e2e8f0"}`, background: activeId === s.id ? "#6366f1" : "#f8fafc", color: activeId === s.id ? "#fff" : "#475569", fontFamily: "'Sora',sans-serif", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              📐 {s.name}
+            </button>
+            {activeId === s.id && (
+              <ConfirmDeleteBtn onConfirm={() => deleteSchema(s.id)} message={`Apagar o esquema "${s.name}"?`} style={{ padding: "8px 10px", background: "#ef4444", border: "2px solid #ef4444", borderRadius: "0 10px 10px 0", color: "#fff", fontSize: 13 }} label="🗑" />
+            )}
+          </div>
+        ))}
+        {addingSchema ? (
+          <div style={{ display: "flex", gap: 8 }}>
+            <input autoFocus value={newSchemaName} onChange={e => setNewSchemaName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addSchema(); if (e.key === "Escape") setAddingSchema(false); }} placeholder="Nome da divisão…" style={{ ...S.input, width: 180, fontSize: 13 }} />
+            <button onClick={addSchema} style={{ ...S.btnPrimary, padding: "7px 14px", fontSize: 13 }}>Criar</button>
+            <button onClick={() => setAddingSchema(false)} style={{ ...S.btnGhost, padding: "7px 10px", fontSize: 13 }}>✕</button>
+          </div>
+        ) : (
+          <button onClick={() => setAddingSchema(true)} style={{ ...S.btnGhost, fontSize: 13, border: "1.5px dashed #a5b4fc", color: "#6366f1" }}>+ Nova Divisão</button>
+        )}
+      </div>
+
+      {/* Canvas */}
+      {active ? (
+        <SchemaCanvas key={active.id} schema={active} onUpdate={updateSchema} />
+      ) : (
+        <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>📐</div>
+          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>Nenhuma divisão selecionada</div>
+          <div style={{ fontSize: 13 }}>Clica em "+ Nova Divisão" para começar.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+const PIN_MASTER = "436900";
+
+function SettingsTab() {
+  const [config, setConfig, loading] = useFirebase("config", { pin: "0000" });
+  const [masterInput, setMasterInput] = useState("");
+  const [masterOk, setMasterOk] = useState(false);
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [msg, setMsg] = useState(null);
+
+  function verifyMaster() {
+    if (masterInput === PIN_MASTER) { setMasterOk(true); setMasterInput(""); setMsg(null); }
+    else { setMsg({ type: "error", text: "PIN Master incorreto." }); setMasterInput(""); }
+  }
+
+  function changePin() {
+    if (!/^\d{4,6}$/.test(newPin)) { setMsg({ type: "error", text: "O novo PIN deve ter 4 a 6 dígitos." }); return; }
+    if (newPin !== confirmPin) { setMsg({ type: "error", text: "Os PINs não coincidem." }); return; }
+    setConfig({ ...config, pin: newPin });
+    setNewPin(""); setConfirmPin(""); setMasterOk(false);
+    setMsg({ type: "success", text: "PIN alterado com sucesso! 🎉" });
+    setTimeout(() => setMsg(null), 3000);
+  }
+
+  if (loading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20, maxWidth: 480 }}>
+      <div style={{ background: "#1e293b", borderRadius: 16, padding: "20px 24px", display: "flex", alignItems: "center", gap: 14 }}>
+        <span style={{ fontSize: 28 }}>⚙️</span>
+        <div>
+          <div style={{ color: "#fff", fontWeight: 800, fontSize: 18, fontFamily: "'Sora',sans-serif" }}>Configurações</div>
+          <div style={{ color: "#64748b", fontSize: 12, fontFamily: "'Sora',sans-serif" }}>Gerir acesso e preferências</div>
+        </div>
+      </div>
+
+      <div style={S.card}>
+        <div style={S.cardHeader}>🔒 Alterar PIN de Acesso</div>
+        <div style={{ padding: "20px" }}>
+
+          {msg && (
+            <div style={{ padding: "10px 14px", borderRadius: 10, marginBottom: 16, background: msg.type === "error" ? "#fff1f2" : "#f0fdf4", border: `1.5px solid ${msg.type === "error" ? "#fecaca" : "#bbf7d0"}`, fontFamily: "'Sora',sans-serif", fontSize: 13, fontWeight: 600, color: msg.type === "error" ? "#dc2626" : "#16a34a" }}>
+              {msg.text}
+            </div>
+          )}
+
+          {!masterOk ? (
+            <>
+              <div style={{ marginBottom: 14, fontFamily: "'Sora',sans-serif", fontSize: 13, color: "#64748b" }}>
+                Para alterar o PIN de acesso é necessário introduzir o <strong>PIN Master</strong>.
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <div>
+                  <label style={S.label}>PIN Master</label>
+                  <input type="password" inputMode="numeric" maxLength={6} value={masterInput} onChange={e => setMasterInput(e.target.value.replace(/\D/g, ""))} onKeyDown={e => e.key === "Enter" && verifyMaster()} style={S.input} placeholder="••••••" />
+                </div>
+              </div>
+              <button onClick={verifyMaster} style={{ ...S.btnPrimary, marginTop: 18 }}>Verificar PIN Master</button>
+            </>
+          ) : (
+            <>
+              <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 10, background: "#f0fdf4", border: "1.5px solid #bbf7d0", fontFamily: "'Sora',sans-serif", fontSize: 13, fontWeight: 600, color: "#16a34a" }}>
+                ✓ PIN Master verificado. Podes alterar o PIN de acesso.
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <div>
+                  <label style={S.label}>Novo PIN (4 a 6 dígitos)</label>
+                  <input type="password" inputMode="numeric" maxLength={6} value={newPin} onChange={e => setNewPin(e.target.value.replace(/\D/g, ""))} style={S.input} placeholder="••••" />
+                </div>
+                <div>
+                  <label style={S.label}>Confirmar Novo PIN</label>
+                  <input type="password" inputMode="numeric" maxLength={6} value={confirmPin} onChange={e => setConfirmPin(e.target.value.replace(/\D/g, ""))} onKeyDown={e => e.key === "Enter" && changePin()} style={S.input} placeholder="••••" />
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+                <button onClick={changePin} style={S.btnPrimary}>🔒 Alterar PIN</button>
+                <button onClick={() => { setMasterOk(false); setNewPin(""); setConfirmPin(""); setMsg(null); }} style={S.btnGhost}>Cancelar</button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div style={S.card}>
+        <div style={S.cardHeader}>ℹ️ Informação</div>
+        <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 10 }}>
+          {[
+            { label: "Versão", value: "ObraControl v2.0" },
+            { label: "Base de dados", value: "Firebase Realtime DB" },
+            { label: "Armazenamento de fotos", value: "Cloudinary (Free)" },
+            { label: "Alojamento", value: "Vercel (Free)" },
+          ].map(item => (
+            <div key={item.label} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #f1f5f9" }}>
+              <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 13, color: "#64748b", fontWeight: 600 }}>{item.label}</span>
+              <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 13, color: "#1e293b", fontWeight: 700 }}>{item.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── PIN LOCK SCREEN ──────────────────────────────────────────
+function PinLock({ onUnlock }) {
+  const [config, , loading] = useFirebase("config", { pin: "0000" });
+  const [input, setInput] = useState("");
+  const [error, setError] = useState(false);
+  const [shake, setShake] = useState(false);
+
+  function tryPin(pin) {
+    if (pin === (config?.pin || "0000")) {
+      sessionStorage.setItem("obra_unlocked", "1");
+      onUnlock();
+    } else {
+      setError(true); setShake(true);
+      setInput("");
+      setTimeout(() => setShake(false), 500);
+      setTimeout(() => setError(false), 2000);
+    }
+  }
+
+  function pressDigit(d) {
+    const next = input + d;
+    setError(false);
+    if (next.length <= 6) {
+      setInput(next);
+      if (next.length >= 4) setTimeout(() => tryPin(next), 100);
+    }
+  }
+
+  function del() { setInput(i => i.slice(0, -1)); }
+
+  if (loading) return (
+    <div style={{ minHeight: "100vh", background: "#1e293b", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ width: 28, height: 28, border: "3px solid #334155", borderTopColor: "#6366f1", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
+
+  const pinLen = config?.pin?.length || 4;
+
+  return (
+    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg,#0f172a,#1e293b)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <style>{`
+        @keyframes shake { 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(-8px)} 40%,80%{transform:translateX(8px)} }
+        @keyframes spin { to{transform:rotate(360deg)} }
+        .pin-btn:active { transform: scale(0.92); }
+      `}</style>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 32, animation: shake ? "shake 0.5s" : "none" }}>
+
+        {/* Logo */}
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 48, marginBottom: 8 }}>🏗️</div>
+          <div style={{ color: "#fff", fontWeight: 800, fontSize: 24, fontFamily: "'Sora',sans-serif", letterSpacing: -0.5 }}>ObraControl</div>
+          <div style={{ color: "#64748b", fontSize: 13, fontFamily: "'Sora',sans-serif", marginTop: 4 }}>Introduz o PIN para aceder</div>
+        </div>
+
+        {/* PIN dots */}
+        <div style={{ display: "flex", gap: 14 }}>
+          {Array.from({ length: pinLen }).map((_, i) => (
+            <div key={i} style={{ width: 16, height: 16, borderRadius: "50%", background: i < input.length ? (error ? "#ef4444" : "#6366f1") : "#334155", transition: "background 0.15s", border: `2px solid ${i < input.length ? (error ? "#ef4444" : "#6366f1") : "#475569"}` }} />
+          ))}
+        </div>
+
+        {error && <div style={{ color: "#ef4444", fontFamily: "'Sora',sans-serif", fontSize: 13, fontWeight: 600, marginTop: -16 }}>PIN incorreto. Tenta novamente.</div>}
+
+        {/* Numpad */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+          {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((d, i) => (
+            d === "" ? <div key={i} /> :
+            <button key={i} className="pin-btn" onClick={() => d === "⌫" ? del() : pressDigit(d)} style={{ width: 72, height: 72, borderRadius: "50%", border: "none", background: d === "⌫" ? "#1e293b" : "#1e3a5f", color: "#fff", fontSize: d === "⌫" ? 22 : 24, fontWeight: 700, fontFamily: "'Sora',sans-serif", cursor: "pointer", transition: "transform 0.1s, background 0.15s", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {d}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── DASHBOARD TAB ────────────────────────────────────────────
+function DashboardTab({ dark, setTab }) {
+  const [rooms,,rL] = useFirebase("rooms2", []);
+  const [tasks,,tL] = useFirebase("tasks", []);
+  const [catalog,,cL] = useFirebase("catalog", INITIAL_CATALOG);
+  const [inventory,,iL] = useFirebase("inventory", []);
+  const [stock,,sL] = useFirebase("stock", []);
+  const [attendance,,aL] = useFirebase("attendance", []);
+  const [workers,,wL] = useFirebase("workers", []);
+
+  const loading = rL || tL || cL || iL || sL || aL || wL;
+
+  // Checklist stats
+  const allCl = (rooms || []).flatMap(r => (r.subrooms || []).flatMap(s => s.checklist || []));
+  const clDone = allCl.filter(c => c.status === "done").length;
+  const clInc = allCl.filter(c => c.status === "incomplete").length;
+  const clTotal = allCl.length;
+  const clPct = clTotal ? Math.round((clDone / clTotal) * 100) : 0;
+
+  // Tasks stats
+  const allTasks = tasks || [];
+  const tasksDone = allTasks.filter(t => t.done).length;
+  const tasksPending = allTasks.filter(t => !t.done).length;
+
+  // Stock crítico
+  const cat = catalog || []; const inv = inventory || []; const used = stock || [];
+  const stockMap = {};
+  inv.forEach(i => { stockMap[i.materialId] = (stockMap[i.materialId] || 0) + i.qty; });
+  used.forEach(e => { if (e.materialId) stockMap[e.materialId] = (stockMap[e.materialId] || 0) - e.qty; });
+  const stockCritical = cat.filter(item => (stockMap[item.id] || 0) <= 0);
+  const stockLow = cat.filter(item => { const q = stockMap[item.id] || 0; return q > 0 && q < 5; });
+
+  // Presenças hoje
+  const today = todayStr();
+  const allWorkers = workers || [];
+  const todayRec = (attendance || []).find(a => a.date === today);
+  const presentToday = todayRec ? (todayRec.present || []).length : 0;
+
+  const d = dark;
+
+  if (loading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Welcome */}
+      <div style={{ background: "linear-gradient(135deg,#6366f1,#4f46e5)", borderRadius: 16, padding: "20px 24px", color: "#fff" }}>
+        <div style={{ fontFamily: "'Sora',sans-serif", fontWeight: 800, fontSize: 20 }}>Bom dia! 👷</div>
+        <div style={{ fontFamily: "'Sora',sans-serif", fontSize: 13, opacity: 0.8, marginTop: 4 }}>
+          {new Date().toLocaleDateString("pt-PT", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12 }}>
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#22c55e", animation: "pulse 2s infinite" }} />
+          <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, opacity: 0.9 }}>LIVE · Dados em tempo real</span>
+          <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}`}</style>
+        </div>
+      </div>
+
+      {/* Stats grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        {[
+          { label: "Progresso Checklist", value: `${clPct}%`, sub: `${clDone}/${clTotal} itens`, color: "#6366f1", icon: "⚡", tab: "checklist" },
+          { label: "Tarefas Pendentes", value: tasksPending, sub: `${tasksDone} concluídas`, color: "#f59e0b", icon: "✅", tab: "tasks" },
+          { label: "Presentes Hoje", value: presentToday, sub: `de ${allWorkers.length} funcionários`, color: "#22c55e", icon: "👷", tab: "attendance" },
+          { label: "Stock Esgotado", value: stockCritical.length, sub: `${stockLow.length} em nível baixo`, color: stockCritical.length > 0 ? "#ef4444" : "#22c55e", icon: "📦", tab: "stock" },
+        ].map(stat => (
+          <button key={stat.label} onClick={() => setTab(stat.tab)} style={{ background: d ? "#1e293b" : "#fff", border: `1.5px solid ${d ? "#334155" : "#e2e8f0"}`, borderRadius: 14, padding: "16px", textAlign: "left", cursor: "pointer", transition: "all 0.2s" }}>
+            <div style={{ fontSize: 22, marginBottom: 8 }}>{stat.icon}</div>
+            <div style={{ fontFamily: "'Sora',sans-serif", fontWeight: 800, fontSize: 24, color: stat.color }}>{stat.value}</div>
+            <div style={{ fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 12, color: d ? "#94a3b8" : "#64748b", marginTop: 2 }}>{stat.label}</div>
+            <div style={{ fontFamily: "'Sora',sans-serif", fontSize: 11, color: d ? "#475569" : "#94a3b8", marginTop: 2 }}>{stat.sub}</div>
+          </button>
+        ))}
+      </div>
+
+      {/* Progresso barra */}
+      <div style={{ background: d ? "#1e293b" : "#fff", border: `1.5px solid ${d ? "#334155" : "#e2e8f0"}`, borderRadius: 14, padding: "16px 20px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+          <span style={{ fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, color: d ? "#e2e8f0" : "#1e293b" }}>⚡ Progresso Elétrico Global</span>
+          <span style={{ fontFamily: "'Sora',sans-serif", fontWeight: 800, fontSize: 14, color: "#6366f1" }}>{clPct}%</span>
+        </div>
+        <div style={{ height: 10, background: d ? "#334155" : "#f1f5f9", borderRadius: 99, overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${clPct}%`, background: clPct === 100 ? "linear-gradient(90deg,#22c55e,#16a34a)" : "linear-gradient(90deg,#6366f1,#4f46e5)", borderRadius: 99, transition: "width 0.5s" }} />
+        </div>
+        <div style={{ display: "flex", gap: 16, marginTop: 10 }}>
+          <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#22c55e", fontWeight: 600 }}>✓ {clDone} concluídos</span>
+          {clInc > 0 && <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#ef4444", fontWeight: 600 }}>⚠️ {clInc} incompletos</span>}
+          <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, color: d ? "#475569" : "#94a3b8" }}>{clTotal - clDone - clInc} pendentes</span>
+        </div>
+      </div>
+
+      {/* Stock crítico */}
+      {stockCritical.length > 0 && (
+        <div style={{ background: "#fff1f2", border: "1.5px solid #fecaca", borderRadius: 14, padding: "16px 20px" }}>
+          <div style={{ fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, color: "#dc2626", marginBottom: 10 }}>⚠️ Material Esgotado</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {stockCritical.map(item => (
+              <span key={item.id} style={{ padding: "4px 12px", borderRadius: 99, background: "#fee2e2", color: "#dc2626", fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 600 }}>
+                {item.code && <span style={{ opacity: 0.7, marginRight: 4 }}>{item.code}</span>}{item.name}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Tarefas urgentes */}
+      {allTasks.filter(t => !t.done && (t.tags || []).includes("urgente")).length > 0 && (
+        <div style={{ background: d ? "#1e293b" : "#fff", border: `1.5px solid ${d ? "#334155" : "#e2e8f0"}`, borderRadius: 14, padding: "16px 20px" }}>
+          <div style={{ fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, color: "#ef4444", marginBottom: 10 }}>🚨 Tarefas Urgentes</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {allTasks.filter(t => !t.done && (t.tags || []).includes("urgente")).slice(0, 3).map(t => (
+              <div key={t.id} style={{ fontFamily: "'Sora',sans-serif", fontSize: 13, color: d ? "#e2e8f0" : "#1e293b", padding: "6px 0", borderBottom: `1px solid ${d ? "#334155" : "#f1f5f9"}` }}>🔴 {t.text}</div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Atalhos */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+        {[
+          { label: "Nova Sala", icon: "🏠", tab: "checklist" },
+          { label: "Nova Tarefa", icon: "➕", tab: "tasks" },
+          { label: "Ver Fotos", icon: "📷", tab: "photos" },
+        ].map(a => (
+          <button key={a.label} onClick={() => setTab(a.tab)} style={{ background: d ? "#1e293b" : "#f8fafc", border: `1.5px solid ${d ? "#334155" : "#e2e8f0"}`, borderRadius: 12, padding: "14px 10px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 22 }}>{a.icon}</span>
+            <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, color: d ? "#94a3b8" : "#64748b" }}>{a.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── TAGS CONSTANTS ───────────────────────────────────────────
+const TAGS = [
+  { value: "urgente",          label: "🚨 Urgente",           color: "#ef4444" },
+  { value: "aguarda-material", label: "📦 Aguarda Material",  color: "#f59e0b" },
+  { value: "aguarda-inspecao", label: "🔍 Aguarda Inspeção",  color: "#6366f1" },
+  { value: "em-curso",         label: "⚙️ Em Curso",          color: "#3b82f6" },
+  { value: "bloqueado",        label: "🚫 Bloqueado",         color: "#94a3b8" },
+];
 
 // ─── MAIN ─────────────────────────────────────────────────────
 export default function App() {
-  const [tab, setTab] = useState("checklist");
-  const TABS = [{ key: "checklist", label: "⚡ Checklist" }, { key: "tasks", label: "✅ Tarefas" }, { key: "stock", label: "📦 Material" }, { key: "photos", label: "📷 Fotos" }, { key: "attendance", label: "👷 Ponto" }];
+  const [unlocked, setUnlocked] = useState(() => sessionStorage.getItem("obra_unlocked") === "1");
+  const [tab, setTab] = useState("dashboard");
+  const [dark, setDark] = useState(() => localStorage.getItem("obra_dark") === "1");
+
+  function toggleDark() {
+    const next = !dark;
+    setDark(next);
+    localStorage.setItem("obra_dark", next ? "1" : "0");
+  }
+
+  const TABS = [
+    { key: "dashboard", label: "🏠 Início" },
+    { key: "checklist", label: "⚡ Checklist" },
+    { key: "schemas",   label: "📐 Esquemas" },
+    { key: "tasks",     label: "📔 Diário" },
+    { key: "stock",     label: "📦 Material" },
+    { key: "photos",    label: "📷 Fotos" },
+    { key: "attendance",label: "👷 Ponto" },
+    { key: "settings",  label: "⚙️ Config." },
+  ];
+
+  if (!unlocked) return <PinLock onUnlock={() => setUnlocked(true)} />;
+
+  const bg = dark ? "#0f172a" : "linear-gradient(135deg,#f0f4ff 0%,#f8fafc 60%,#fff7ed 100%)";
+  const navBg = dark ? "#0f172a" : "#fff";
+  const navBorder = dark ? "#1e293b" : "#e2e8f0";
+  const tabActive = "#6366f1";
+  const tabInactive = dark ? "#475569" : "#94a3b8";
+
   return (
-    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg,#f0f4ff 0%,#f8fafc 60%,#fff7ed 100%)" }}>
+    <div style={{ minHeight: "100vh", background: bg }}>
       <div style={{ background: "#1e293b", padding: "0 20px" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", height: 60 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 24 }}>🏗️</span><div><div style={{ color: "#fff", fontWeight: 800, fontSize: 17, letterSpacing: -0.5, fontFamily: "'Sora',sans-serif" }}>ObraControl</div><div style={{ color: "#64748b", fontSize: 11, fontFamily: "'Sora',sans-serif" }}>Parte Elétrica</div></div></div>
-          <div style={{ color: "#475569", fontSize: 12, fontFamily: "'Sora',sans-serif" }}>{new Date().toLocaleDateString("pt-PT", { day: "2-digit", month: "short", year: "numeric" })}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 24 }}>🏗️</span>
+            <div>
+              <div style={{ color: "#fff", fontWeight: 800, fontSize: 17, letterSpacing: -0.5, fontFamily: "'Sora',sans-serif" }}>ObraControl</div>
+              <div style={{ color: "#64748b", fontSize: 11, fontFamily: "'Sora',sans-serif" }}>Parte Elétrica</div>
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={toggleDark} style={{ padding: "5px 12px", background: "#334155", border: "none", borderRadius: 8, color: "#94a3b8", cursor: "pointer", fontFamily: "'Sora',sans-serif", fontSize: 13, fontWeight: 600 }} title="Modo escuro">
+              {dark ? "☀️" : "🌙"}
+            </button>
+            <button onClick={() => { sessionStorage.removeItem("obra_unlocked"); setUnlocked(false); }} style={{ padding: "5px 12px", background: "#334155", border: "none", borderRadius: 8, color: "#94a3b8", cursor: "pointer", fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 600 }}>🔒 Sair</button>
+          </div>
         </div>
       </div>
-      <div style={{ background: "#fff", borderBottom: "1.5px solid #e2e8f0", overflowX: "auto" }}>
+      <div style={{ background: navBg, borderBottom: `1.5px solid ${navBorder}`, overflowX: "auto" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex" }}>
-          {TABS.map(t => (<button key={t.key} onClick={() => setTab(t.key)} style={{ padding: "14px 18px", border: "none", background: "transparent", cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 600, fontSize: 13, color: tab === t.key ? "#6366f1" : "#94a3b8", borderBottom: tab === t.key ? "2.5px solid #6366f1" : "2.5px solid transparent", transition: "all 0.2s", marginBottom: -1, whiteSpace: "nowrap" }}>{t.label}</button>))}
+          {TABS.map(t => (<button key={t.key} onClick={() => setTab(t.key)} style={{ padding: "14px 16px", border: "none", background: "transparent", cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 600, fontSize: 12, color: tab === t.key ? tabActive : tabInactive, borderBottom: tab === t.key ? `2.5px solid ${tabActive}` : "2.5px solid transparent", transition: "all 0.2s", marginBottom: -1, whiteSpace: "nowrap" }}>{t.label}</button>))}
         </div>
       </div>
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 16px" }}>
-        {tab === "checklist" && <ChecklistTab />}
-        {tab === "tasks" && <TasksTab />}
-        {tab === "stock" && <StockTab />}
-        {tab === "photos" && <PhotosTab />}
-        {tab === "attendance" && <AttendanceTab />}
+        {tab === "dashboard"  && <DashboardTab dark={dark} setTab={setTab} />}
+        {tab === "schemas"    && <SchemasTab dark={dark} />}
+        {tab === "checklist"  && <ChecklistTab dark={dark} />}
+        {tab === "tasks"      && <TasksTab dark={dark} />}
+        {tab === "stock"      && <StockTab dark={dark} />}
+        {tab === "photos"     && <PhotosTab dark={dark} />}
+        {tab === "attendance" && <AttendanceTab dark={dark} />}
+        {tab === "settings"   && <SettingsTab dark={dark} />}
       </div>
-      <div style={{ textAlign: "center", padding: "16px", color: "#cbd5e1", fontSize: 11, fontFamily: "'Sora',sans-serif" }}>ObraControl · Firebase LIVE</div>
+      <div style={{ textAlign: "center", padding: "16px", color: dark ? "#334155" : "#cbd5e1", fontSize: 11, fontFamily: "'Sora',sans-serif" }}>ObraControl · Firebase LIVE</div>
     </div>
   );
 }
 
-const S = {
-  input: { padding: "9px 14px", border: "1.5px solid #e2e8f0", borderRadius: 10, fontFamily: "'Sora',sans-serif", fontSize: 14, outline: "none", background: "#f8fafc", color: "#1e293b", width: "100%", boxSizing: "border-box" },
-  btnPrimary: { padding: "9px 20px", background: "linear-gradient(135deg,#6366f1,#4f46e5)", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 14 },
-  btnGhost: { padding: "8px 16px", background: "transparent", color: "#64748b", border: "1.5px solid #e2e8f0", borderRadius: 10, cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 600, fontSize: 13 },
-  btnSmall: { padding: "5px 10px", background: "#f1f5f9", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 14 },
-  card: { background: "#fff", borderRadius: 14, border: "1.5px solid #e2e8f0", overflow: "hidden" },
-  cardHeader: { padding: "14px 20px", background: "#f8fafc", borderBottom: "1.5px solid #e2e8f0", fontWeight: 700, fontSize: 14, color: "#1e293b", fontFamily: "'Sora',sans-serif" },
-  label: { display: "block", marginBottom: 6, fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5 },
-};
+function mkS(dark) {
+  const d = dark;
+  return {
+    input: { padding: "9px 14px", border: `1.5px solid ${d ? "#334155" : "#e2e8f0"}`, borderRadius: 10, fontFamily: "'Sora',sans-serif", fontSize: 14, outline: "none", background: d ? "#1e293b" : "#f8fafc", color: d ? "#e2e8f0" : "#1e293b", width: "100%", boxSizing: "border-box" },
+    btnPrimary: { padding: "9px 20px", background: "linear-gradient(135deg,#6366f1,#4f46e5)", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 14 },
+    btnGhost: { padding: "8px 16px", background: "transparent", color: d ? "#94a3b8" : "#64748b", border: `1.5px solid ${d ? "#334155" : "#e2e8f0"}`, borderRadius: 10, cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 600, fontSize: 13 },
+    btnSmall: { padding: "5px 10px", background: d ? "#1e293b" : "#f1f5f9", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 14 },
+    card: { background: d ? "#1e293b" : "#fff", borderRadius: 14, border: `1.5px solid ${d ? "#334155" : "#e2e8f0"}`, overflow: "hidden" },
+    cardHeader: { padding: "14px 20px", background: d ? "#0f172a" : "#f8fafc", borderBottom: `1.5px solid ${d ? "#334155" : "#e2e8f0"}`, fontWeight: 700, fontSize: 14, color: d ? "#e2e8f0" : "#1e293b", fontFamily: "'Sora',sans-serif" },
+    label: { display: "block", marginBottom: 6, fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, color: d ? "#64748b" : "#64748b", textTransform: "uppercase", letterSpacing: 0.5 },
+  };
+}
+
+// Keep S as light-mode default for components that don't receive dark prop
+const S = mkS(false);
