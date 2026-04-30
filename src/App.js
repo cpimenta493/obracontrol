@@ -1800,7 +1800,7 @@ export default function App() {
 
   const TABS = [
     { key: "dashboard", label: "🏠 Início" },
-    { key: "checklist", label: "⚡ Checklist" },
+    { key: "checklist", label: "⚡ Obra" },
     { key: "tasks",     label: "📔 Diário" },
     { key: "stock",     label: "📦 Material" },
     { key: "attendance",label: "👷 Ponto" },
