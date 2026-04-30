@@ -1534,10 +1534,20 @@ function SettingsTab() {
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [msg, setMsg] = useState(null);
+  const [reportEmailInput, setReportEmailInput] = useState("");
+  const [reportMsg, setReportMsg] = useState(null);
+
+  useEffect(() => { if (!loading && config?.reportEmail) setReportEmailInput(config.reportEmail); }, [loading]);
 
   function verifyMaster() {
     if (masterInput === PIN_MASTER) { setMasterOk(true); setMasterInput(""); setMsg(null); }
     else { setMsg({ type: "error", text: "PIN Master incorreto." }); setMasterInput(""); }
+  }
+
+  function saveReportEmail() {
+    setConfig({ ...config, reportEmail: reportEmailInput.trim() });
+    setReportMsg("Email guardado!");
+    setTimeout(() => setReportMsg(null), 3000);
   }
 
   function changePin() {
@@ -1605,6 +1615,34 @@ function SettingsTab() {
               </div>
             </>
           )}
+        </div>
+      </div>
+
+      <div style={S.card}>
+        <div style={S.cardHeader}>📧 Relatório Semanal Automático</div>
+        <div style={{ padding: "20px" }}>
+          <div style={{ marginBottom: 14, fontFamily: "'Sora',sans-serif", fontSize: 13, color: "#64748b" }}>
+            Enviado automaticamente todas as <strong>segundas-feiras às 8h</strong> com a folha de ponto e materiais utilizados da semana anterior.
+          </div>
+          <div>
+            <label style={S.label}>Email de destino</label>
+            <input type="email" value={reportEmailInput} onChange={e => setReportEmailInput(e.target.value)} style={S.input} placeholder="exemplo@email.com" />
+          </div>
+          <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+            <button onClick={saveReportEmail} style={S.btnPrimary}>💾 Guardar Email</button>
+          </div>
+          {reportMsg && <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 8, background: "#f0fdf4", border: "1.5px solid #bbf7d0", fontFamily: "'Sora',sans-serif", fontSize: 13, color: "#16a34a" }}>{reportMsg}</div>}
+          <div style={{ marginTop: 16, padding: "14px 16px", background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: 10 }}>
+            <div style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, color: "#d97706", marginBottom: 8 }}>⚙️ Configuração necessária no Vercel</div>
+            <div style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#92400e", display: "flex", flexDirection: "column", gap: 4 }}>
+              <div>Adiciona estas variáveis de ambiente no painel do Vercel:</div>
+              <div style={{ background: "#fef3c7", borderRadius: 6, padding: "8px 10px", fontFamily: "monospace", fontSize: 12, display: "flex", flexDirection: "column", gap: 2 }}>
+                <div><strong>SMTP_USER</strong> — o teu Gmail (ex: obra@gmail.com)</div>
+                <div><strong>SMTP_PASS</strong> — App Password do Gmail (16 caracteres)</div>
+              </div>
+              <div style={{ marginTop: 4 }}>Para gerar o App Password: Google Account → Segurança → Verificação em 2 passos → Palavras-passe de aplicações.</div>
+            </div>
+          </div>
         </div>
       </div>
 
