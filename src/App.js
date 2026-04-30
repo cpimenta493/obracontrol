@@ -398,6 +398,7 @@ function ChecklistTab() {
   const [newRoomName, setNewRoomName] = useState("");
   const [search, setSearch] = useState("");
   const [sortAlpha, setSortAlpha] = useState(false);
+  const [subTab, setSubTab] = useState("checklist");
   const loading = roomsLoading || tplLoading;
   const filtered = (rooms || []).filter(r => r.name.toLowerCase().includes(search.toLowerCase()));
   const displayed = sortAlpha ? [...filtered].sort((a, b) => a.name.localeCompare(b.name)) : filtered;
@@ -409,48 +410,63 @@ function ChecklistTab() {
   const incItems = allCl.filter(c => c.status === "incomplete").length;
   const totalItems = allCl.length;
   const globalPct = totalItems ? Math.round((doneItems / totalItems) * 100) : 0;
-  if (loading) return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 200, gap: 12, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}><div style={{ width: 24, height: 24, border: "3px solid #e2e8f0", borderTopColor: "#6366f1", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />A sincronizar…<style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>;
+  const SUB_TABS = [
+    { key: "checklist", label: "⚡ Checklist" },
+    { key: "schemas",   label: "📐 Esquemas" },
+    { key: "photos",    label: "📷 Fotos" },
+  ];
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {showSettings && <SettingsModal template={template} onSave={t => { setTemplate(t); setShowSettings(false); }} onClose={() => setShowSettings(false)} />}
-      <div style={{ background: "#1e293b", borderRadius: 16, padding: "18px 20px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 24 }}>⚡</span><div><div style={{ color: "#94a3b8", fontSize: 10, fontFamily: "'Sora',sans-serif", fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }}>Progresso Global</div><div style={{ color: "#fff", fontSize: 20, fontWeight: 800, fontFamily: "'Sora',sans-serif" }}>{doneItems} / {totalItems}</div></div></div>
-          <div style={{ flex: 1, minWidth: 140 }}>
-            <div style={{ height: 8, background: "#334155", borderRadius: 99, overflow: "hidden", position: "relative" }}>
-              <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${globalPct}%`, background: "linear-gradient(90deg,#6366f1,#22c55e)", borderRadius: 99 }} />
-              {incItems > 0 && <div style={{ position: "absolute", right: 0, top: 0, height: "100%", width: `${Math.round((incItems / totalItems) * 100)}%`, background: "#ef4444", opacity: 0.8 }} />}
-            </div>
-            <div style={{ display: "flex", gap: 12, marginTop: 5 }}>
-              <span style={{ color: "#64748b", fontSize: 11, fontFamily: "'Sora',sans-serif", fontWeight: 600 }}>{globalPct}% concluído</span>
-              {incItems > 0 && <span style={{ color: "#ef4444", fontSize: 11, fontFamily: "'Sora',sans-serif", fontWeight: 700 }}>⚠️ {incItems} incompleto(s)</span>}
+      <div style={{ display: "flex", gap: 0, borderBottom: "1.5px solid #e2e8f0", marginBottom: 4 }}>
+        {SUB_TABS.map(st => (
+          <button key={st.key} onClick={() => setSubTab(st.key)} style={{ padding: "10px 18px", border: "none", background: "transparent", cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 600, fontSize: 13, color: subTab === st.key ? "#6366f1" : "#94a3b8", borderBottom: subTab === st.key ? "2.5px solid #6366f1" : "2.5px solid transparent", marginBottom: -1.5 }}>{st.label}</button>
+        ))}
+      </div>
+      {subTab === "schemas" && <SchemasTab />}
+      {subTab === "photos" && <PhotosTab />}
+      {subTab === "checklist" && (loading ? (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 200, gap: 12, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}><div style={{ width: 24, height: 24, border: "3px solid #e2e8f0", borderTopColor: "#6366f1", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />A sincronizar…<style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>
+      ) : (
+        <>
+          {showSettings && <SettingsModal template={template} onSave={t => { setTemplate(t); setShowSettings(false); }} onClose={() => setShowSettings(false)} />}
+          <div style={{ background: "#1e293b", borderRadius: 16, padding: "18px 20px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 24 }}>⚡</span><div><div style={{ color: "#94a3b8", fontSize: 10, fontFamily: "'Sora',sans-serif", fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }}>Progresso Global</div><div style={{ color: "#fff", fontSize: 20, fontWeight: 800, fontFamily: "'Sora',sans-serif" }}>{doneItems} / {totalItems}</div></div></div>
+              <div style={{ flex: 1, minWidth: 140 }}>
+                <div style={{ height: 8, background: "#334155", borderRadius: 99, overflow: "hidden", position: "relative" }}>
+                  <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${globalPct}%`, background: "linear-gradient(90deg,#6366f1,#22c55e)", borderRadius: 99 }} />
+                  {incItems > 0 && <div style={{ position: "absolute", right: 0, top: 0, height: "100%", width: `${Math.round((incItems / totalItems) * 100)}%`, background: "#ef4444", opacity: 0.8 }} />}
+                </div>
+                <div style={{ display: "flex", gap: 12, marginTop: 5 }}>
+                  <span style={{ color: "#64748b", fontSize: 11, fontFamily: "'Sora',sans-serif", fontWeight: 600 }}>{globalPct}% concluído</span>
+                  {incItems > 0 && <span style={{ color: "#ef4444", fontSize: 11, fontFamily: "'Sora',sans-serif", fontWeight: 700 }}>⚠️ {incItems} incompleto(s)</span>}
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#22c55e", animation: "pulse 2s infinite" }} /><span style={{ color: "#22c55e", fontSize: 11, fontFamily: "'Sora',sans-serif", fontWeight: 700 }}>LIVE</span>
+                <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}`}</style>
+              </div>
             </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#22c55e", animation: "pulse 2s infinite" }} /><span style={{ color: "#22c55e", fontSize: 11, fontFamily: "'Sora',sans-serif", fontWeight: 700 }}>LIVE</span>
-            <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}`}</style>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            <input placeholder="🔍 Pesquisar sala…" value={search} onChange={e => setSearch(e.target.value)} style={{ ...S.input, flex: 1, minWidth: 150 }} />
+            <button onClick={() => setSortAlpha(v => !v)} style={{ ...S.btnGhost, border: sortAlpha ? "1.5px solid #6366f1" : "1.5px solid #e2e8f0", color: sortAlpha ? "#6366f1" : "#64748b", fontSize: 13 }}>🔡 A→Z</button>
+            <button onClick={() => setShowSettings(true)} style={{ ...S.btnGhost, border: "1.5px solid #c7d2fe", color: "#6366f1", fontSize: 13 }}>⚙️</button>
+            <button onClick={() => setAddingRoom(true)} style={S.btnPrimary}>+ Nova Sala</button>
           </div>
-        </div>
-      </div>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-        <input placeholder="🔍 Pesquisar sala…" value={search} onChange={e => setSearch(e.target.value)} style={{ ...S.input, flex: 1, minWidth: 150 }} />
-        <button onClick={() => setSortAlpha(v => !v)} style={{ ...S.btnGhost, border: sortAlpha ? "1.5px solid #6366f1" : "1.5px solid #e2e8f0", color: sortAlpha ? "#6366f1" : "#64748b", fontSize: 13 }}>🔡 A→Z</button>
-        <button onClick={() => setShowSettings(true)} style={{ ...S.btnGhost, border: "1.5px solid #c7d2fe", color: "#6366f1", fontSize: 13 }}>⚙️</button>
-        <button onClick={() => setAddingRoom(true)} style={S.btnPrimary}>+ Nova Sala</button>
-      </div>
-      {addingRoom && (
-        <div style={S.card}>
-          <div style={S.cardHeader}>Nova Sala Principal</div>
-          <div style={{ padding: "14px 20px" }}><label style={S.label}>Nome *</label><input value={newRoomName} onChange={e => setNewRoomName(e.target.value)} onKeyDown={e => e.key === "Enter" && addRoom()} style={S.input} placeholder="Ex: Bloco A, Piso 1…" /></div>
-          <div style={{ display: "flex", gap: 10, padding: "0 20px 16px" }}><button onClick={addRoom} style={S.btnPrimary}>Criar</button><button onClick={() => setAddingRoom(false)} style={S.btnGhost}>Cancelar</button></div>
-        </div>
-      )}
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {displayed.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>Sem salas.</div>}
-        {displayed.map(room => (<RoomCard key={room.id} room={room} template={template} onUpdate={u => updateRoom(room.id, u)} onDelete={() => deleteRoom(room.id)} />))}
-      </div>
-    </div>
-  );
+          {addingRoom && (
+            <div style={S.card}>
+              <div style={S.cardHeader}>Nova Sala Principal</div>
+              <div style={{ padding: "14px 20px" }}><label style={S.label}>Nome *</label><input value={newRoomName} onChange={e => setNewRoomName(e.target.value)} onKeyDown={e => e.key === "Enter" && addRoom()} style={S.input} placeholder="Ex: Bloco A, Piso 1…" /></div>
+              <div style={{ display: "flex", gap: 10, padding: "0 20px 16px" }}><button onClick={addRoom} style={S.btnPrimary}>Criar</button><button onClick={() => setAddingRoom(false)} style={S.btnGhost}>Cancelar</button></div>
+            </div>
+          )}
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {displayed.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>Sem salas.</div>}
+            {displayed.map(room => (<RoomCard key={room.id} room={room} template={template} onUpdate={u => updateRoom(room.id, u)} onDelete={() => deleteRoom(room.id)} />))}
+          </div>
+        </>
+      ))}
 }
 
 // ─── PHOTOS TAB ───────────────────────────────────────────────
@@ -1750,10 +1766,8 @@ export default function App() {
   const TABS = [
     { key: "dashboard", label: "🏠 Início" },
     { key: "checklist", label: "⚡ Checklist" },
-    { key: "schemas",   label: "📐 Esquemas" },
     { key: "tasks",     label: "📔 Diário" },
     { key: "stock",     label: "📦 Material" },
-    { key: "photos",    label: "📷 Fotos" },
     { key: "attendance",label: "👷 Ponto" },
     { key: "settings",  label: "⚙️ Config." },
   ];
@@ -1792,11 +1806,9 @@ export default function App() {
       </div>
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 16px" }}>
         {tab === "dashboard"  && <DashboardTab dark={dark} setTab={setTab} />}
-        {tab === "schemas"    && <SchemasTab dark={dark} />}
         {tab === "checklist"  && <ChecklistTab dark={dark} />}
         {tab === "tasks"      && <TasksTab dark={dark} />}
         {tab === "stock"      && <StockTab dark={dark} />}
-        {tab === "photos"     && <PhotosTab dark={dark} />}
         {tab === "attendance" && <AttendanceTab dark={dark} />}
         {tab === "settings"   && <SettingsTab dark={dark} />}
       </div>
