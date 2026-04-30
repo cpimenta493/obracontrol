@@ -1535,19 +1535,47 @@ function SettingsTab() {
   const [confirmPin, setConfirmPin] = useState("");
   const [msg, setMsg] = useState(null);
   const [reportEmailInput, setReportEmailInput] = useState("");
-  const [reportMsg, setReportMsg] = useState(null);
+  const [reportDay, setReportDay]   = useState(1);   // 1=Segunda
+  const [reportHour, setReportHour] = useState(8);   // 8h Portugal
+  const [reportMsg, setReportMsg]   = useState(null);
+  const [forceSending, setForceSending] = useState(false);
 
-  useEffect(() => { if (!loading && config?.reportEmail) setReportEmailInput(config.reportEmail); }, [loading]);
+  useEffect(() => {
+    if (!loading) {
+      if (config?.reportEmail) setReportEmailInput(config.reportEmail);
+      if (config?.reportDay  != null) setReportDay(Number(config.reportDay));
+      if (config?.reportHour != null) setReportHour(Number(config.reportHour));
+    }
+  }, [loading]);
 
   function verifyMaster() {
     if (masterInput === PIN_MASTER) { setMasterOk(true); setMasterInput(""); setMsg(null); }
     else { setMsg({ type: "error", text: "PIN Master incorreto." }); setMasterInput(""); }
   }
 
-  function saveReportEmail() {
-    setConfig({ ...config, reportEmail: reportEmailInput.trim() });
-    setReportMsg("Email guardado!");
+  function saveReportConfig() {
+    setConfig({ ...config, reportEmail: reportEmailInput.trim(), reportDay, reportHour });
+    setReportMsg({ type: "success", text: "✓ Configuração guardada!" });
     setTimeout(() => setReportMsg(null), 3000);
+  }
+
+  async function forceSendNow() {
+    setForceSending(true);
+    setReportMsg(null);
+    try {
+      const res = await fetch("/api/weekly-report?force=true");
+      const data = await res.json();
+      if (data.success) {
+        setReportMsg({ type: "success", text: `✓ Email enviado para ${data.recipient} (${data.dataRows} linhas, ${data.period})` });
+      } else if (data.skipped) {
+        setReportMsg({ type: "warn", text: `⚠️ ${data.reason}` });
+      } else {
+        setReportMsg({ type: "error", text: `Erro: ${data.error}` });
+      }
+    } catch (e) {
+      setReportMsg({ type: "error", text: `Erro de rede: ${e.message}` });
+    }
+    setForceSending(false);
   }
 
   function changePin() {
@@ -1620,27 +1648,63 @@ function SettingsTab() {
 
       <div style={S.card}>
         <div style={S.cardHeader}>📧 Relatório Semanal Automático</div>
-        <div style={{ padding: "20px" }}>
-          <div style={{ marginBottom: 14, fontFamily: "'Sora',sans-serif", fontSize: 13, color: "#64748b" }}>
-            Enviado automaticamente todas as <strong>segundas-feiras às 8h</strong> com a folha de ponto e materiais utilizados da semana anterior.
-          </div>
+        <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: 14 }}>
+          {/* Email */}
           <div>
             <label style={S.label}>Email de destino</label>
             <input type="email" value={reportEmailInput} onChange={e => setReportEmailInput(e.target.value)} style={S.input} placeholder="exemplo@email.com" />
           </div>
-          <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-            <button onClick={saveReportEmail} style={S.btnPrimary}>💾 Guardar Email</button>
+          {/* Day + Hour */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>
+              <label style={S.label}>Dia de envio</label>
+              <select value={reportDay} onChange={e => setReportDay(Number(e.target.value))} style={S.input}>
+                {[["1","Segunda-feira"],["2","Terça-feira"],["3","Quarta-feira"],["4","Quinta-feira"],["5","Sexta-feira"],["6","Sábado"],["0","Domingo"]].map(([v,l]) => (
+                  <option key={v} value={v}>{l}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={S.label}>Hora de envio (PT)</label>
+              <select value={reportHour} onChange={e => setReportHour(Number(e.target.value))} style={S.input}>
+                {Array.from({ length: 24 }, (_, i) => (
+                  <option key={i} value={i}>{String(i).padStart(2,"0")}h</option>
+                ))}
+              </select>
+            </div>
           </div>
-          {reportMsg && <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 8, background: "#f0fdf4", border: "1.5px solid #bbf7d0", fontFamily: "'Sora',sans-serif", fontSize: 13, color: "#16a34a" }}>{reportMsg}</div>}
-          <div style={{ marginTop: 16, padding: "14px 16px", background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: 10 }}>
-            <div style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, color: "#d97706", marginBottom: 8 }}>⚙️ Configuração necessária no Vercel</div>
-            <div style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#92400e", display: "flex", flexDirection: "column", gap: 4 }}>
-              <div>Adiciona estas variáveis de ambiente no painel do Vercel:</div>
-              <div style={{ background: "#fef3c7", borderRadius: 6, padding: "8px 10px", fontFamily: "monospace", fontSize: 12, display: "flex", flexDirection: "column", gap: 2 }}>
-                <div><strong>SMTP_USER</strong> — o teu Gmail (ex: obra@gmail.com)</div>
-                <div><strong>SMTP_PASS</strong> — App Password do Gmail (16 caracteres)</div>
+          {/* Buttons */}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button onClick={saveReportConfig} style={S.btnPrimary}>💾 Guardar</button>
+            <button onClick={forceSendNow} disabled={forceSending} style={{ ...S.btnGhost, border: "1.5px solid #6366f1", color: "#6366f1", opacity: forceSending ? 0.6 : 1 }}>
+              {forceSending ? "A enviar…" : "⚡ Forçar Envio Agora"}
+            </button>
+          </div>
+          {/* Feedback */}
+          {reportMsg && (
+            <div style={{ padding: "8px 12px", borderRadius: 8, fontFamily: "'Sora',sans-serif", fontSize: 13, fontWeight: 600,
+              background: reportMsg.type === "success" ? "#f0fdf4" : reportMsg.type === "warn" ? "#fffbeb" : "#fff1f2",
+              border: `1.5px solid ${reportMsg.type === "success" ? "#bbf7d0" : reportMsg.type === "warn" ? "#fde68a" : "#fecaca"}`,
+              color: reportMsg.type === "success" ? "#16a34a" : reportMsg.type === "warn" ? "#d97706" : "#dc2626" }}>
+              {reportMsg.text}
+            </div>
+          )}
+          {/* Last sent */}
+          {config?.reportLastSent && (
+            <div style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#94a3b8" }}>
+              Último envio: {config.reportLastSent}
+            </div>
+          )}
+          {/* Setup instructions */}
+          <div style={{ padding: "14px 16px", background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: 10 }}>
+            <div style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, color: "#d97706", marginBottom: 8 }}>⚙️ Configuração no Vercel (só 1 vez)</div>
+            <div style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#92400e", display: "flex", flexDirection: "column", gap: 6 }}>
+              <div>Adiciona em <strong>Vercel → Settings → Environment Variables</strong>:</div>
+              <div style={{ background: "#fef3c7", borderRadius: 6, padding: "8px 10px", fontFamily: "monospace", fontSize: 11, display: "flex", flexDirection: "column", gap: 3 }}>
+                <div><strong>SMTP_USER</strong> → o teu Gmail (ex: obra@gmail.com)</div>
+                <div><strong>SMTP_PASS</strong> → App Password do Gmail (16 caracteres)</div>
               </div>
-              <div style={{ marginTop: 4 }}>Para gerar o App Password: Google Account → Segurança → Verificação em 2 passos → Palavras-passe de aplicações.</div>
+              <div>Gerar App Password: <strong>myaccount.google.com → Segurança → Verificação em 2 etapas → Palavras-passe de aplicações</strong></div>
             </div>
           </div>
         </div>

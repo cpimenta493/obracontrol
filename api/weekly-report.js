@@ -10,35 +10,53 @@ function toArray(val) {
 
 function toCSV(rows) {
   return rows
-    .map(row =>
-      row.map(cell => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(",")
-    )
+    .map(row => row.map(cell => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(","))
     .join("\n");
 }
 
-function lastWeekRange() {
+// Previous week Mon–Sun relative to today
+function previousWeekRange() {
   const now = new Date();
-  const dow = now.getDay(); // 0=Sun 1=Mon…
-  // Days to go back to reach last Monday
-  const daysBack = dow === 0 ? 13 : dow + 6;
-  const lastMon = new Date(now);
-  lastMon.setDate(now.getDate() - daysBack);
+  const dow = now.getUTCDay(); // 0=Sun 1=Mon…
+  const daysToThisMon = dow === 0 ? 6 : dow - 1;
+  const thisMon = new Date(now);
+  thisMon.setUTCDate(now.getUTCDate() - daysToThisMon);
+  const lastMon = new Date(thisMon);
+  lastMon.setUTCDate(thisMon.getUTCDate() - 7);
   const lastSun = new Date(lastMon);
-  lastSun.setDate(lastMon.getDate() + 6);
+  lastSun.setUTCDate(lastMon.getUTCDate() + 6);
   const fmt = d => d.toISOString().slice(0, 10);
-  return { from: fmt(lastMon), to: fmt(lastSun) };
+  return { from: fmt(lastMon), to: fmt(lastSun), thisMon: fmt(thisMon) };
+}
+
+// Write a single field to Firebase via REST
+async function firebaseSet(path, value) {
+  await fetch(`${FIREBASE_URL}/${path}.json`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(value),
+  });
 }
 
 module.exports = async function handler(req, res) {
-  // Allow GET (for manual test) and cron trigger
-  const authHeader = req.headers["authorization"];
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return res.status(401).json({ error: "Unauthorized" });
+  // CORS for browser force-send calls
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  if (req.method === "OPTIONS") return res.status(200).end();
+
+  const force = req.query?.force === "true";
+
+  // Auth check — only for scheduled (non-forced) calls
+  if (!force) {
+    const authHeader = req.headers["authorization"];
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
   }
 
   try {
-    // Read Firebase data
+    // Read Firebase config + data
     const [attRes, wRes, stockRes, cfgRes] = await Promise.all([
       fetch(`${FIREBASE_URL}/attendance.json`),
       fetch(`${FIREBASE_URL}/workers.json`),
@@ -53,7 +71,7 @@ module.exports = async function handler(req, res) {
 
     const recipientEmail = config.reportEmail;
     if (!recipientEmail) {
-      return res.status(200).json({ message: "Nenhum email configurado. Define em ObraControl → Config." });
+      return res.status(200).json({ skipped: true, reason: "Nenhum email configurado em ObraControl → Config." });
     }
 
     const smtpUser = process.env.SMTP_USER;
@@ -62,45 +80,58 @@ module.exports = async function handler(req, res) {
       return res.status(500).json({ error: "SMTP_USER ou SMTP_PASS não definidos nas variáveis de ambiente do Vercel." });
     }
 
-    // Date range: previous week Mon–Sun
-    const { from: fromDate, to: toDate } = lastWeekRange();
+    if (!force) {
+      // Check configured day (JS getDay: 0=Sun, 1=Mon…6=Sat)
+      const configDay  = parseInt(config.reportDay  ?? 1);    // default Monday
+      const configHour = parseInt(config.reportHour ?? 8);    // default 8h Portugal = 7h UTC
+      const nowUTC = new Date();
+      const ptHour = (nowUTC.getUTCHours() + 1) % 24;        // Portugal ≈ UTC+1
+      const ptDay  = new Date(nowUTC.getTime() + 3600000).getUTCDay(); // shift 1h for PT
+
+      if (ptDay !== configDay || ptHour !== configHour) {
+        return res.status(200).json({ skipped: true, reason: `Não é o dia/hora configurado (config: dia ${configDay} às ${configHour}h; agora: dia ${ptDay} às ${ptHour}h PT).` });
+      }
+
+      // Check if already sent this week
+      const { thisMon } = previousWeekRange();
+      if (config.reportLastSent && config.reportLastSent >= thisMon) {
+        return res.status(200).json({ skipped: true, reason: "Relatório já enviado esta semana." });
+      }
+    }
+
+    // Build date range
+    const { from: fromDate, to: toDate } = previousWeekRange();
 
     const weekAtt   = attendance.filter(a => a.date >= fromDate && a.date <= toDate);
     const weekStock = stock.filter(e => e.date >= fromDate && e.date <= toDate);
 
-    // Collect all dates with data
     const allDates = [
       ...new Set([...weekAtt.map(a => a.date), ...weekStock.map(e => e.date)]),
     ].sort();
 
-    // Build CSV
     const rows = [["Data", "Funcionários", "Trabalhos Realizados", "Material", "Código", "Quantidade", "Unidade"]];
 
     for (const date of allDates) {
       const attRec   = weekAtt.find(a => a.date === date);
       const dayStock = weekStock.filter(e => e.date === date);
-
       const workerNames = attRec
         ? workers.filter(w => (attRec.present || []).includes(w.id)).map(w => w.name).join(", ")
         : "";
       const works = attRec?.works || "";
 
       if (dayStock.length > 0) {
-        dayStock.forEach(e => {
-          rows.push([date, workerNames, works, e.name || "", e.code || "", e.qty ?? "", e.unit || ""]);
-        });
+        dayStock.forEach(e => rows.push([date, workerNames, works, e.name || "", e.code || "", e.qty ?? "", e.unit || ""]));
       } else {
         rows.push([date, workerNames, works, "", "", "", ""]);
       }
     }
 
     if (rows.length === 1) {
-      return res.status(200).json({ message: "Sem dados na semana anterior. Email não enviado." });
+      return res.status(200).json({ skipped: true, reason: `Sem dados entre ${fromDate} e ${toDate}.` });
     }
 
     const csvContent = toCSV(rows);
 
-    // Send email via Gmail SMTP
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || "smtp.gmail.com",
       port: parseInt(process.env.SMTP_PORT || "587"),
@@ -111,19 +142,15 @@ module.exports = async function handler(req, res) {
     await transporter.sendMail({
       from: `ObraControl <${smtpUser}>`,
       to: recipientEmail,
-      subject: `ObraControl · Relatório Semanal ${fromDate} → ${toDate}`,
+      subject: `ObraControl · Relatório Semanal ${fromDate} → ${toDate}${force ? " (envio manual)" : ""}`,
       html: `
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1e293b">
+        <div style="font-family:Arial,sans-serif;max-width:600px;color:#1e293b">
           <h2 style="color:#6366f1">📊 Relatório Semanal · ObraControl</h2>
           <p>Semana de <strong>${fromDate}</strong> a <strong>${toDate}</strong>.</p>
-          <p>Em anexo encontras o CSV com:</p>
-          <ul>
-            <li>Folha de ponto — funcionários presentes e trabalhos realizados</li>
-            <li>Materiais utilizados (Registar Uso)</li>
-          </ul>
-          <p style="color:#94a3b8;font-size:12px">Enviado automaticamente pelo ObraControl todas as segundas-feiras.</p>
-        </div>
-      `,
+          <p>Em anexo o CSV com a folha de ponto e materiais utilizados.</p>
+          ${force ? '<p style="color:#f59e0b">⚡ Enviado manualmente.</p>' : ""}
+          <p style="color:#94a3b8;font-size:12px">ObraControl · envio automático semanal</p>
+        </div>`,
       attachments: [{
         filename: `relatorio_${fromDate}_${toDate}.csv`,
         content: Buffer.from(csvContent, "utf-8"),
@@ -131,11 +158,16 @@ module.exports = async function handler(req, res) {
       }],
     });
 
+    // Mark as sent (store today's date)
+    const today = new Date().toISOString().slice(0, 10);
+    await firebaseSet("config/reportLastSent", today);
+
     return res.status(200).json({
       success: true,
       period: `${fromDate} → ${toDate}`,
       dataRows: rows.length - 1,
       recipient: recipientEmail,
+      forced: force,
     });
 
   } catch (err) {
