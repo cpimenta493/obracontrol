@@ -1078,6 +1078,7 @@ function AttendanceTab() {
 
 // ─── ESQUEMAS TAB ─────────────────────────────────────────────
 const ELEMENT_ICONS = ["⚡","🔌","💡","🔲","🔀","📦","🔧","⬛","⭕","📍","🔶","🔷"];
+const CABLE_COLORS = ["#6366f1","#ef4444","#f59e0b","#22c55e","#0ea5e9","#8b5cf6","#ec4899","#94a3b8","#f97316","#1e293b"];
 
 function SchemaCanvas({ schema, onUpdate }) {
   const canvasRef = useRef(null);
@@ -1087,6 +1088,9 @@ function SchemaCanvas({ schema, onUpdate }) {
   const [addingEl, setAddingEl] = useState(false);
   const [newEl, setNewEl] = useState({ label: "", icon: "🔌", color: "#6366f1" });
   const [editEl, setEditEl] = useState(null);
+  const [connColor, setConnColor] = useState("#6366f1");
+  const [connLabel, setConnLabel] = useState("");
+  const [editConn, setEditConn] = useState(null);
 
   const elements = schema.elements || [];
   const connections = schema.connections || [];
@@ -1117,12 +1121,9 @@ function SchemaCanvas({ schema, onUpdate }) {
       return;
     }
     if (connecting && connecting !== id) {
-      // second element picked — create connection
-      const already = connections.find(c => (c.from === connecting && c.to === id) || (c.from === id && c.to === connecting));
-      if (!already) {
-        onUpdate({ ...schema, connections: [...connections, { id: genId(), from: connecting, to: id }] });
-      }
+      onUpdate({ ...schema, connections: [...connections, { id: genId(), from: connecting, to: id, color: connColor, label: connLabel }] });
       setConnecting(null);
+      setConnLabel("");
       return;
     }
     // normal select
@@ -1183,8 +1184,17 @@ function SchemaCanvas({ schema, onUpdate }) {
 
       {/* Connection mode hint */}
       {connectMode && (
-        <div style={{ padding: "10px 14px", background: "#eef2ff", border: "1.5px solid #c7d2fe", borderRadius: 10, fontFamily: "'Sora',sans-serif", fontSize: 13, color: "#6366f1", fontWeight: 600 }}>
-          🔗 {connecting === "waiting" ? "Clica no elemento de origem (onde o cabo começa)" : `Origem selecionada ✓ — agora clica no elemento de destino`}
+        <div style={{ padding: "12px 14px", background: "#eef2ff", border: "1.5px solid #c7d2fe", borderRadius: 10, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontFamily: "'Sora',sans-serif", fontSize: 13, color: "#6366f1", fontWeight: 600 }}>
+            🔗 {connecting === "waiting" ? "Clica no elemento de origem (onde o cabo começa)" : "Origem selecionada ✓ — agora clica no elemento de destino"}
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#475569", fontWeight: 600 }}>Cor do cabo:</span>
+            {CABLE_COLORS.map(c => (
+              <button key={c} onClick={() => setConnColor(c)} style={{ width: 22, height: 22, borderRadius: "50%", background: c, border: `3px solid ${connColor === c ? "#1e293b" : "transparent"}`, cursor: "pointer" }} />
+            ))}
+          </div>
+          <input value={connLabel} onChange={e => setConnLabel(e.target.value)} placeholder="Nome do cabo (ex: Fase L1, Neutro, Terra…)" style={{ ...S.input, fontSize: 12 }} />
         </div>
       )}
 
@@ -1268,18 +1278,20 @@ function SchemaCanvas({ schema, onUpdate }) {
             const t = getCenter(to);
             const mx = (f.x + t.x) / 2;
             const my = (f.y + t.y) / 2;
+            const clr = conn.color || "#6366f1";
             return (
               <g key={conn.id || idx}>
-                <line x1={f.x} y1={f.y} x2={t.x} y2={t.y} stroke="#6366f1" strokeWidth="2.5" strokeDasharray="7 4" opacity="0.75" />
-                {/* Arrow head */}
                 <defs>
                   <marker id={`arrow-${idx}`} markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-                    <path d="M0,0 L0,6 L8,3 z" fill="#6366f1" opacity="0.75" />
+                    <path d="M0,0 L0,6 L8,3 z" fill={clr} opacity="0.85" />
                   </marker>
                 </defs>
-                <line x1={f.x} y1={f.y} x2={t.x} y2={t.y} stroke="#6366f1" strokeWidth="2.5" strokeDasharray="7 4" opacity="0.75" markerEnd={`url(#arrow-${idx})`} />
+                <line x1={f.x} y1={f.y} x2={t.x} y2={t.y} stroke={clr} strokeWidth="2.5" strokeDasharray="7 4" opacity="0.85" markerEnd={`url(#arrow-${idx})`} />
+                {conn.label && (
+                  <text x={mx} y={my - 14} textAnchor="middle" fontSize="10" fill={clr} fontWeight="700" fontFamily="'Sora',sans-serif" style={{ userSelect: "none", pointerEvents: "none" }}>{conn.label}</text>
+                )}
                 {/* Delete btn */}
-                <g style={{ cursor: "pointer" }} onClick={e => { e.stopPropagation(); deleteConnection(idx); }}>
+                <g style={{ cursor: "pointer", pointerEvents: "all" }} onClick={e => { e.stopPropagation(); deleteConnection(idx); }}>
                   <circle cx={mx} cy={my} r="9" fill="#fff" stroke="#fecaca" strokeWidth="1.5" />
                   <text x={mx} y={my + 4} textAnchor="middle" fontSize="11" fill="#ef4444" style={{ userSelect: "none" }}>✕</text>
                 </g>
@@ -1340,15 +1352,36 @@ function SchemaCanvas({ schema, onUpdate }) {
 
       {/* Connections summary */}
       {connections.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 700, color: "#94a3b8", letterSpacing: 1, textTransform: "uppercase" }}>Ligações</div>
           {connections.map((conn, idx) => {
             const from = elements.find(e => e.id === conn.from);
             const to = elements.find(e => e.id === conn.to);
             if (!from || !to) return null;
+            const clr = conn.color || "#6366f1";
+            if (editConn?.idx === idx) {
+              return (
+                <div key={idx} style={{ display: "flex", gap: 8, alignItems: "center", background: "#f8fafc", border: "1.5px solid #e2e8f0", borderRadius: 10, padding: "8px 12px", flexWrap: "wrap" }}>
+                  <div style={{ width: 12, height: 12, borderRadius: "50%", background: editConn.color, flexShrink: 0 }} />
+                  <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#475569" }}>{from.icon} {from.label} → {to.icon} {to.label}</span>
+                  <input value={editConn.label} onChange={e => setEditConn(ec => ({ ...ec, label: e.target.value }))} placeholder="Nome do cabo" style={{ ...S.input, width: 160, fontSize: 12, padding: "4px 8px" }} />
+                  <div style={{ display: "flex", gap: 4 }}>
+                    {CABLE_COLORS.map(c => (<button key={c} onClick={() => setEditConn(ec => ({ ...ec, color: c }))} style={{ width: 20, height: 20, borderRadius: "50%", background: c, border: `3px solid ${editConn.color === c ? "#1e293b" : "transparent"}`, cursor: "pointer" }} />))}
+                  </div>
+                  <button onClick={() => { const nc = [...connections]; nc[idx] = { ...nc[idx], label: editConn.label, color: editConn.color }; onUpdate({ ...schema, connections: nc }); setEditConn(null); }} style={{ ...S.btnPrimary, padding: "4px 10px", fontSize: 12 }}>✓ Guardar</button>
+                  <button onClick={() => setEditConn(null)} style={{ ...S.btnGhost, padding: "4px 8px", fontSize: 12 }}>Cancelar</button>
+                </div>
+              );
+            }
             return (
-              <span key={idx} style={{ padding: "3px 10px", borderRadius: 99, background: "#eef2ff", color: "#6366f1", fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 600 }}>
-                {from.icon} {from.label} → {to.icon} {to.label}
-              </span>
+              <div key={idx} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px 5px 6px", borderRadius: 99, background: clr + "18", border: `1.5px solid ${clr}44` }}>
+                <div style={{ width: 12, height: 12, borderRadius: "50%", background: clr, flexShrink: 0 }} />
+                <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 600, color: clr, flex: 1 }}>
+                  {conn.label ? <><strong>{conn.label}</strong>: </> : ""}{from.icon} {from.label} → {to.icon} {to.label}
+                </span>
+                <button onClick={() => setEditConn({ idx, label: conn.label || "", color: clr })} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, padding: "0 2px", color: "#94a3b8", lineHeight: 1 }}>✏️</button>
+                <button onClick={() => deleteConnection(idx)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, padding: "0 2px", color: "#ef4444", fontWeight: 700, lineHeight: 1 }}>✕</button>
+              </div>
             );
           })}
         </div>
