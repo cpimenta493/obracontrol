@@ -939,6 +939,7 @@ function AttendanceTab() {
   const [showManageWorkers, setShowManageWorkers] = useState(false);
   const [newWorkerName, setNewWorkerName] = useState("");
   const [filterFrom, setFilterFrom] = useState(""); const [filterTo, setFilterTo] = useState("");
+  const [calMonth, setCalMonth] = useState(todayStr().slice(0, 7));
 
   const allWorkers = workers || [];
   const allAttendance = attendance || [];
@@ -954,14 +955,29 @@ function AttendanceTab() {
 
   function toggleWorker(wid) {
     const isPresent = present.includes(wid);
-    const newPresent = isPresent ? present.filter(id => id !== wid) : [...present, wid];
-    updateDayRecord({ present: newPresent });
+    updateDayRecord({ present: isPresent ? present.filter(id => id !== wid) : [...present, wid] });
   }
 
   function updateWorks(val) { updateDayRecord({ works: val }); }
-
   function addWorker() { if (!newWorkerName.trim()) return; setWorkers([...allWorkers, { id: genId(), name: newWorkerName.trim() }]); setNewWorkerName(""); }
   function deleteWorker(id) { setWorkers(allWorkers.filter(w => w.id !== id)); }
+
+  function calDays(ym) {
+    const [y, m] = ym.split("-").map(Number);
+    const firstDow = new Date(y, m - 1, 1).getDay();
+    const blanks = firstDow === 0 ? 6 : firstDow - 1;
+    const total = new Date(y, m, 0).getDate();
+    const cells = [];
+    for (let i = 0; i < blanks; i++) cells.push(null);
+    for (let d = 1; d <= total; d++) cells.push(d);
+    return cells;
+  }
+
+  function shiftMonth(delta) {
+    const [y, m] = calMonth.split("-").map(Number);
+    const d = new Date(y, m - 1 + delta, 1);
+    setCalMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
 
   const histFiltered = allAttendance.filter(a => {
     const mf = filterFrom ? a.date >= filterFrom : true;
@@ -972,16 +988,21 @@ function AttendanceTab() {
   function doExport() {
     const rows = [["Data", "Funcionário", "Trabalhos Realizados"]];
     histFiltered.forEach(a => {
-      const presentWorkers = allWorkers.filter(w => (a.present || []).includes(w.id));
-      presentWorkers.forEach(w => rows.push([a.date, w.name, a.works || ""]));
+      allWorkers.filter(w => (a.present || []).includes(w.id)).forEach(w => rows.push([a.date, w.name, a.works || ""]));
     });
     exportToCSV(rows, `folha_ponto.csv`);
   }
 
   if (loading || wLoading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
 
+  const today = todayStr();
+  const calCells = calDays(calMonth);
+  const [calY, calM] = calMonth.split("-").map(Number);
+  const monthLabel = new Date(calY, calM - 1, 1).toLocaleDateString("pt-PT", { month: "long", year: "numeric" });
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Manage workers modal */}
       {showManageWorkers && (
         <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(15,23,42,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={() => setShowManageWorkers(false)}>
           <div style={{ background: "#fff", borderRadius: 20, width: "100%", maxWidth: 460, boxShadow: "0 24px 60px rgba(0,0,0,0.18)", overflow: "hidden", maxHeight: "80vh", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
@@ -995,50 +1016,95 @@ function AttendanceTab() {
         </div>
       )}
 
+      {/* Header */}
+      <div style={{ background: "#1e293b", borderRadius: 16, padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 24 }}>👷</span>
+          <div style={{ color: "#fff", fontWeight: 800, fontSize: 16, fontFamily: "'Sora',sans-serif" }}>Folha de Ponto</div>
+        </div>
+        <button onClick={() => setShowManageWorkers(true)} style={{ ...S.btnGhost, fontSize: 12, padding: "5px 12px", border: "1.5px solid #c7d2fe", color: "#c7d2fe" }}>⚙️ Funcionários</button>
+      </div>
+
+      {/* Calendar */}
+      <div style={{ ...S.card, padding: 0 }}>
+        {/* Month nav */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", borderBottom: "1px solid #f1f5f9" }}>
+          <button onClick={() => shiftMonth(-1)} style={{ ...S.btnGhost, padding: "6px 14px", fontSize: 18, lineHeight: 1 }}>‹</button>
+          <span style={{ fontFamily: "'Sora',sans-serif", fontWeight: 800, fontSize: 15, color: "#1e293b", textTransform: "capitalize" }}>{monthLabel}</span>
+          <button onClick={() => shiftMonth(1)} style={{ ...S.btnGhost, padding: "6px 14px", fontSize: 18, lineHeight: 1 }}>›</button>
+        </div>
+        {/* Day-of-week headers */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", padding: "8px 12px 0" }}>
+          {["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"].map((d, i) => (
+            <div key={d} style={{ textAlign: "center", fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 700, color: i >= 5 ? "#f59e0b" : "#94a3b8", padding: "4px 0" }}>{d}</div>
+          ))}
+        </div>
+        {/* Day cells */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3, padding: "6px 12px 14px" }}>
+          {calCells.map((day, i) => {
+            if (!day) return <div key={`b${i}`} />;
+            const dateStr = `${calMonth}-${String(day).padStart(2, "0")}`;
+            const rec = allAttendance.find(a => a.date === dateStr);
+            const count = rec ? (rec.present || []).length : 0;
+            const isToday = dateStr === today;
+            const isSel = dateStr === selDate;
+            const isWeekend = i % 7 >= 5;
+            return (
+              <button
+                key={dateStr}
+                onClick={() => setSelDate(dateStr)}
+                style={{
+                  padding: "7px 2px 6px",
+                  borderRadius: 10,
+                  border: isSel ? "2.5px solid #6366f1" : isToday ? "2px solid #a5b4fc" : "1.5px solid transparent",
+                  background: isSel ? "#6366f1" : isToday ? "#eef2ff" : isWeekend ? "#fafafa" : "transparent",
+                  cursor: "pointer",
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+                  minHeight: 56,
+                }}
+              >
+                <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 13, fontWeight: isToday || isSel ? 800 : 600, color: isSel ? "#fff" : isToday ? "#6366f1" : isWeekend ? "#f59e0b" : "#475569" }}>{day}</span>
+                {count > 0 && (
+                  <span style={{ background: isSel ? "rgba(255,255,255,0.25)" : "#dcfce7", color: isSel ? "#fff" : "#16a34a", fontFamily: "'Sora',sans-serif", fontSize: 10, fontWeight: 700, padding: "1px 5px", borderRadius: 99 }}>{count}👷</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Selected day panel */}
       <div style={S.card}>
-        <div style={{ ...S.cardHeader, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
-          <span>👷 Folha de Ponto</span>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <input type="date" value={selDate} onChange={e => setSelDate(e.target.value)} style={{ ...S.input, width: "auto", fontSize: 13, padding: "5px 10px" }} />
-            <button onClick={() => setShowManageWorkers(true)} style={{ ...S.btnGhost, fontSize: 12, padding: "5px 12px", border: "1.5px solid #c7d2fe", color: "#6366f1" }}>⚙️ Funcionários</button>
-          </div>
+        <div style={S.cardHeader}>
+          📅 {new Date(selDate + "T12:00:00").toLocaleDateString("pt-PT", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}
+          <span style={{ marginLeft: 10, fontSize: 12, color: "#22c55e", fontWeight: 600 }}>{present.length} presente(s) / {allWorkers.length}</span>
         </div>
         <div style={{ padding: "14px 18px" }}>
-          <div style={{ marginBottom: 12, fontFamily: "'Sora',sans-serif", fontSize: 13, color: "#64748b" }}>
-            {new Date(selDate + "T12:00:00").toLocaleDateString("pt-PT", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })} — <strong style={{ color: "#22c55e" }}>{present.length} presente(s)</strong> / {allWorkers.length}
-          </div>
-
-          {allWorkers.length === 0 && <div style={{ textAlign: "center", padding: 20, color: "#94a3b8", fontFamily: "'Sora',sans-serif", fontSize: 13 }}>Nenhum funcionário.</div>}
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {allWorkers.map(w => {
-              const isPresent = present.includes(w.id);
-              return (
-                <button key={w.id} onClick={() => toggleWorker(w.id)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", borderRadius: 12, border: `2px solid ${isPresent ? "#22c55e" : "#e2e8f0"}`, background: isPresent ? "#f0fdf4" : "#f8fafc", cursor: "pointer", textAlign: "left" }}>
-                  <div style={{ width: 28, height: 28, borderRadius: "50%", border: `2.5px solid ${isPresent ? "#22c55e" : "#cbd5e1"}`, background: isPresent ? "#22c55e" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    {isPresent && <svg width="14" height="14" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
-                  </div>
-                  <span style={{ flex: 1, fontFamily: "'Sora',sans-serif", fontWeight: 600, fontSize: 15, color: isPresent ? "#16a34a" : "#475569" }}>{w.name}</span>
-                  <span style={{ padding: "3px 12px", borderRadius: 99, fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, background: isPresent ? "#dcfce7" : "#f1f5f9", color: isPresent ? "#16a34a" : "#94a3b8" }}>{isPresent ? "✓ Presente" : "Ausente"}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Trabalhos realizados no dia */}
+          {allWorkers.length === 0
+            ? <div style={{ textAlign: "center", padding: 20, color: "#94a3b8", fontFamily: "'Sora',sans-serif", fontSize: 13 }}>Nenhum funcionário. Adiciona em ⚙️ Funcionários.</div>
+            : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {allWorkers.map(w => {
+                  const isPresent = present.includes(w.id);
+                  return (
+                    <button key={w.id} onClick={() => toggleWorker(w.id)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", borderRadius: 12, border: `2px solid ${isPresent ? "#22c55e" : "#e2e8f0"}`, background: isPresent ? "#f0fdf4" : "#f8fafc", cursor: "pointer", textAlign: "left" }}>
+                      <div style={{ width: 28, height: 28, borderRadius: "50%", border: `2.5px solid ${isPresent ? "#22c55e" : "#cbd5e1"}`, background: isPresent ? "#22c55e" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        {isPresent && <svg width="14" height="14" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                      </div>
+                      <span style={{ flex: 1, fontFamily: "'Sora',sans-serif", fontWeight: 600, fontSize: 15, color: isPresent ? "#16a34a" : "#475569" }}>{w.name}</span>
+                      <span style={{ padding: "3px 12px", borderRadius: 99, fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, background: isPresent ? "#dcfce7" : "#f1f5f9", color: isPresent ? "#16a34a" : "#94a3b8" }}>{isPresent ? "✓ Presente" : "Ausente"}</span>
+                    </button>
+                  );
+                })}
+              </div>
+          }
           <div style={{ marginTop: 18, borderTop: "1px solid #f1f5f9", paddingTop: 16 }}>
             <label style={S.label}>🔧 Trabalhos Realizados no Dia</label>
-            <textarea
-              value={works}
-              onChange={e => updateWorks(e.target.value)}
-              placeholder="Descreve os trabalhos realizados hoje… Ex: Passagem de cabos no piso 2, instalação de tomadas no quarto 3…"
-              rows={3}
-              style={{ ...S.input, resize: "vertical", lineHeight: 1.5, fontSize: 13 }}
-            />
+            <textarea value={works} onChange={e => updateWorks(e.target.value)} placeholder="Ex: Passagem de cabos no piso 2, instalação de tomadas no quarto 3…" rows={3} style={{ ...S.input, resize: "vertical", lineHeight: 1.5, fontSize: 13 }} />
           </div>
         </div>
       </div>
 
+      {/* Histórico */}
       <div style={S.card}>
         <div style={{ ...S.cardHeader, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
           <span>📋 Histórico</span>
@@ -1062,11 +1128,7 @@ function AttendanceTab() {
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: a.works ? 8 : 0 }}>
                     {presentNames.map(n => <span key={n.id} style={{ padding: "3px 10px", borderRadius: 99, background: "#dcfce7", color: "#16a34a", fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 600 }}>✓ {n.name}</span>)}
                   </div>
-                  {a.works && (
-                    <div style={{ marginTop: 6, padding: "8px 12px", background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0", fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#475569" }}>
-                      🔧 <em>{a.works}</em>
-                    </div>
-                  )}
+                  {a.works && <div style={{ marginTop: 6, padding: "8px 12px", background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0", fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#475569" }}>🔧 <em>{a.works}</em></div>}
                 </div>
               );
             })
