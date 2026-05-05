@@ -121,53 +121,47 @@ module.exports = async function handler(req, res) {
     const weekAtt   = attendance.filter(a => a.date >= fromDate && a.date <= toDate);
     const weekStock = stock.filter(e => e.date >= fromDate && e.date <= toDate);
 
-    const allDates = [
-      ...new Set([...weekAtt.map(a => a.date), ...weekStock.map(e => e.date)]),
-    ].sort();
+    const attDates   = [...new Set(weekAtt.filter(a => (a.present || []).length > 0).map(a => a.date))].sort();
+    const stockDates = [...new Set(weekStock.map(e => e.date))].sort();
 
-    const rows = [["Data", "Hora Entrada", "Intervalo (min)", "Hora Saída", "Total Horas", "Funcionário", "Trabalhos Realizados", "Material", "Código", "Quantidade", "Unidade"]];
-
-    for (const date of allDates) {
-      const attRec   = weekAtt.find(a => a.date === date);
-      const dayStock = weekStock.filter(e => e.date === date);
-      const works    = attRec?.works || "";
-
-      // Build worker entries with hours
-      const presentIds = attRec ? (attRec.present || []) : [];
-      const workerNamesMap = attRec?.workerNames || {};
-      const workerEntries = presentIds.map(id => {
+    // ── Tabela 1: Funcionários ──────────────────────────────────
+    const t1 = [["Data", "Hora Entrada", "Intervalo (min)", "Hora Saída", "Total Horas", "Funcionários", "Trabalhos Realizados"]];
+    for (const date of attDates) {
+      const attRec = weekAtt.find(a => a.date === date);
+      if (!attRec) continue;
+      const presentIds     = attRec.present || [];
+      const workerNamesMap = attRec.workerNames || {};
+      const works          = attRec.works || "";
+      presentIds.forEach(id => {
         const live = workers.find(w => w.id === id);
         const name = live?.name || workerNamesMap[id] || id;
-        const wh = (attRec?.workerHours || {})[id] || {};
-        return { name, wh };
+        const wh   = (attRec.workerHours || {})[id] || {};
+        t1.push([date, wh.in || "", wh.break || "", wh.out || "", calcTotalHours(wh), name, works]);
       });
-
-      const maxRows = Math.max(workerEntries.length || 1, dayStock.length || 1);
-
-      for (let i = 0; i < maxRows; i++) {
-        const w  = workerEntries[i];
-        const st = dayStock[i];
-        rows.push([
-          date,
-          w?.wh?.in    || "",
-          w?.wh?.break || "",
-          w?.wh?.out   || "",
-          w ? calcTotalHours(w.wh) : "",
-          w?.name      || "",
-          i === 0 ? works : "",
-          st?.name     || "",
-          st?.code     || "",
-          st?.qty      ?? "",
-          st?.unit     || "",
-        ]);
-      }
     }
 
-    if (rows.length === 1) {
+    // ── Tabela 2: Materiais ─────────────────────────────────────
+    const t2 = [["Data", "Material", "Código", "Quantidade", "Unidade"]];
+    for (const date of stockDates) {
+      weekStock.filter(e => e.date === date).forEach(e => {
+        t2.push([date, e.name || "", e.code || "", e.qty ?? "", e.unit || ""]);
+      });
+    }
+
+    const hasT1 = t1.length > 1;
+    const hasT2 = t2.length > 1;
+    if (!hasT1 && !hasT2) {
       return res.status(200).json({ skipped: true, reason: `Sem dados entre ${fromDate} e ${toDate}.` });
     }
 
-    const csvContent = toCSV(rows);
+    // Combine: Tabela 1, linha vazia, Tabela 2
+    let allRows = [];
+    if (hasT1) allRows = [...t1];
+    if (hasT1 && hasT2) allRows.push([]);
+    if (hasT2) allRows = [...allRows, ...t2];
+
+    const csvContent = toCSV(allRows);
+    const dataRows   = (t1.length - 1) + (t2.length - 1);
 
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || "smtp.gmail.com",
@@ -202,7 +196,7 @@ module.exports = async function handler(req, res) {
     return res.status(200).json({
       success: true,
       period: `${fromDate} → ${toDate}`,
-      dataRows: rows.length - 1,
+      dataRows,
       recipient: recipientEmail,
       forced: force,
     });

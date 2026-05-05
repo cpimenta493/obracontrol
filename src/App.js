@@ -937,6 +937,7 @@ function StockTab() {
 function AttendanceTab() {
   const [attendance, setAttendance, loading] = useFirebase("attendance", DEF_ATTENDANCE);
   const [workers, setWorkers, wLoading] = useFirebase("workers", INITIAL_WORKERS);
+  const [stock, , sLoading] = useFirebase("stock", DEF_STOCK);
   const [selDate, setSelDate] = useState(todayStr());
   const [showManageWorkers, setShowManageWorkers] = useState(false);
   const [newWorkerName, setNewWorkerName] = useState("");
@@ -1025,17 +1026,35 @@ function AttendanceTab() {
   }).sort((a, b) => b.date.localeCompare(a.date));
 
   function doExport() {
-    const rows = [["Data", "Hora Entrada", "Intervalo (min)", "Hora Saída", "Total Horas", "Funcionário", "Trabalhos Realizados"]];
+    const allStock = stock || [];
+
+    // Tabela 1 — Funcionários
+    const t1 = [["Data", "Hora Entrada", "Intervalo (min)", "Hora Saída", "Total Horas", "Funcionários", "Trabalhos Realizados"]];
     histFiltered.forEach(a => {
       (a.present || []).forEach(id => {
         const wh = (a.workerHours || {})[id] || {};
-        rows.push([a.date, wh.in || "", wh.break || "", wh.out || "", calcTotalHours(wh), resolveName(id, a), a.works || ""]);
+        t1.push([a.date, wh.in || "", wh.break || "", wh.out || "", calcTotalHours(wh), resolveName(id, a), a.works || ""]);
       });
     });
-    exportToCSV(rows, `folha_ponto.csv`);
+
+    // Tabela 2 — Materiais (filtrado pelas mesmas datas do histórico)
+    const histDates = new Set(histFiltered.map(a => a.date));
+    const stockFiltered = allStock.filter(e => {
+      const mf = filterFrom ? e.date >= filterFrom : true;
+      const mt = filterTo ? e.date <= filterTo : true;
+      return mf && mt;
+    }).sort((a, b) => a.date.localeCompare(b.date));
+
+    const t2 = [["Data", "Material", "Código", "Quantidade", "Unidade"]];
+    stockFiltered.forEach(e => t2.push([e.date, e.name || "", e.code || "", e.qty ?? "", e.unit || ""]));
+
+    // Combinar: tabela1, linha vazia, tabela2
+    const hasT2 = t2.length > 1;
+    const combined = [...t1, ...(hasT2 ? [[], ...t2] : [])];
+    exportToCSV(combined, `folha_ponto.csv`);
   }
 
-  if (loading || wLoading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
+  if (loading || wLoading || sLoading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
 
   const today = todayStr();
   const calCells = calDays(calMonth);
