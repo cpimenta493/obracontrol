@@ -1,4 +1,4 @@
-const CACHE = "obracontrol-v3";
+const CACHE = "obracontrol-v4";
 const ASSETS = ["/", "/index.html", "/static/js/main.chunk.js", "/static/js/bundle.js"];
 
 self.addEventListener("install", e => {

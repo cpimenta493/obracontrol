@@ -1028,12 +1028,20 @@ function AttendanceTab() {
   function doExport() {
     const allStock = stock || [];
 
-    // Tabela 1 — Funcionários
+    // Tabela 1 — Funcionários (Data e Trabalhos só na 1ª linha do dia, como célula mesclada)
     const t1 = [["Data", "Hora Entrada", "Intervalo (min)", "Hora Saída", "Total Horas", "Funcionários", "Trabalhos Realizados"]];
     histFiltered.forEach(a => {
-      (a.present || []).forEach(id => {
+      (a.present || []).forEach((id, idx) => {
         const wh = (a.workerHours || {})[id] || {};
-        t1.push([a.date, wh.in || "", wh.break || "", wh.out || "", calcTotalHours(wh), resolveName(id, a), a.works || ""]);
+        t1.push([
+          idx === 0 ? a.date : "",
+          wh.in || "",
+          wh.break || "",
+          wh.out || "",
+          calcTotalHours(wh),
+          resolveName(id, a),
+          idx === 0 ? a.works || "" : "",
+        ]);
       });
     });
 
@@ -1046,7 +1054,11 @@ function AttendanceTab() {
     }).sort((a, b) => a.date.localeCompare(b.date));
 
     const t2 = [["Data", "Material", "Código", "Quantidade", "Unidade"]];
-    stockFiltered.forEach(e => t2.push([e.date, e.name || "", e.code || "", e.qty ?? "", e.unit || ""]));
+    let lastStockDate = null;
+    stockFiltered.forEach(e => {
+      t2.push([e.date !== lastStockDate ? e.date : "", e.name || "", e.code || "", e.qty ?? "", e.unit || ""]);
+      lastStockDate = e.date;
+    });
 
     // Combinar: tabela1, linha vazia, tabela2
     const hasT2 = t2.length > 1;

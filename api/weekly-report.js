@@ -9,9 +9,12 @@ function toArray(val) {
 }
 
 function toCSV(rows) {
-  return rows
-    .map(row => row.map(cell => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(","))
+  // sep=; tells Excel to use semicolon as delimiter (European locale)
+  // BOM (﻿) ensures correct encoding in Excel
+  const body = rows
+    .map(row => row.map(cell => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(";"))
     .join("\n");
+  return "﻿sep=;\n" + body;
 }
 
 // Previous week Mon–Sun relative to today
@@ -125,6 +128,7 @@ module.exports = async function handler(req, res) {
     const stockDates = [...new Set(weekStock.map(e => e.date))].sort();
 
     // ── Tabela 1: Funcionários ──────────────────────────────────
+    // Estrutura igual ao xlsx: Data e Trabalhos só na 1ª linha de cada dia (simula células mescladas)
     const t1 = [["Data", "Hora Entrada", "Intervalo (min)", "Hora Saída", "Total Horas", "Funcionários", "Trabalhos Realizados"]];
     for (const date of attDates) {
       const attRec = weekAtt.find(a => a.date === date);
@@ -132,19 +136,29 @@ module.exports = async function handler(req, res) {
       const presentIds     = attRec.present || [];
       const workerNamesMap = attRec.workerNames || {};
       const works          = attRec.works || "";
-      presentIds.forEach(id => {
+      presentIds.forEach((id, idx) => {
         const live = workers.find(w => w.id === id);
         const name = live?.name || workerNamesMap[id] || id;
         const wh   = (attRec.workerHours || {})[id] || {};
-        t1.push([date, wh.in || "", wh.break || "", wh.out || "", calcTotalHours(wh), name, works]);
+        // Data e Trabalhos apenas na 1ª linha do dia (como célula mesclada)
+        t1.push([
+          idx === 0 ? date : "",
+          wh.in || "",
+          wh.break || "",
+          wh.out || "",
+          calcTotalHours(wh),
+          name,
+          idx === 0 ? works : "",
+        ]);
       });
     }
 
     // ── Tabela 2: Materiais ─────────────────────────────────────
+    // Data só na 1ª linha de cada dia
     const t2 = [["Data", "Material", "Código", "Quantidade", "Unidade"]];
     for (const date of stockDates) {
-      weekStock.filter(e => e.date === date).forEach(e => {
-        t2.push([date, e.name || "", e.code || "", e.qty ?? "", e.unit || ""]);
+      weekStock.filter(e => e.date === date).forEach((e, idx) => {
+        t2.push([idx === 0 ? date : "", e.name || "", e.code || "", e.qty ?? "", e.unit || ""]);
       });
     }
 
