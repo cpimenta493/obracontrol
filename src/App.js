@@ -414,6 +414,7 @@ function ChecklistTab() {
     { key: "checklist", label: "⚡ Checklist" },
     { key: "schemas",   label: "📐 Esquemas" },
     { key: "photos",    label: "📷 Fotos" },
+    { key: "faseobra",  label: "🏗️ Fase de Obra" },
   ];
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -424,6 +425,7 @@ function ChecklistTab() {
       </div>
       {subTab === "schemas" && <SchemasTab />}
       {subTab === "photos" && <PhotosTab />}
+      {subTab === "faseobra" && <FaseObraTab />}
       {subTab === "checklist" && (loading ? (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 200, gap: 12, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}><div style={{ width: 24, height: 24, border: "3px solid #e2e8f0", borderTopColor: "#6366f1", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />A sincronizar…<style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>
       ) : (
@@ -940,6 +942,9 @@ function AttendanceTab() {
   const [newWorkerName, setNewWorkerName] = useState("");
   const [filterFrom, setFilterFrom] = useState(""); const [filterTo, setFilterTo] = useState("");
   const [calMonth, setCalMonth] = useState(todayStr().slice(0, 7));
+  const [openPresencas, setOpenPresencas] = useState(true);
+  const [openHistorico, setOpenHistorico] = useState(false);
+  const [openWorkerList, setOpenWorkerList] = useState(true);
 
   const allWorkers = workers || [];
   const allAttendance = attendance || [];
@@ -955,7 +960,41 @@ function AttendanceTab() {
 
   function toggleWorker(wid) {
     const isPresent = present.includes(wid);
-    updateDayRecord({ present: isPresent ? present.filter(id => id !== wid) : [...present, wid] });
+    const worker = allWorkers.find(w => w.id === wid);
+    const updates = { present: isPresent ? present.filter(id => id !== wid) : [...present, wid] };
+    if (worker) {
+      const wnames = { ...(dayRecord.workerNames || {}) };
+      wnames[wid] = worker.name;
+      updates.workerNames = wnames;
+    }
+    updateDayRecord(updates);
+  }
+
+  function getWorkerHours(wid) {
+    return (dayRecord.workerHours || {})[wid] || { in: "", break: "", out: "" };
+  }
+
+  function updateWorkerHours(wid, field, value) {
+    const wh = { ...(dayRecord.workerHours || {}) };
+    wh[wid] = { ...(wh[wid] || {}), [field]: value };
+    updateDayRecord({ workerHours: wh });
+  }
+
+  function calcTotalHours(wh) {
+    if (!wh?.in || !wh?.out) return "";
+    const [ih, im] = wh.in.split(":").map(Number);
+    const [oh, om] = wh.out.split(":").map(Number);
+    let totalMins = (oh * 60 + om) - (ih * 60 + im);
+    if (wh.break) totalMins -= parseInt(wh.break) || 0;
+    if (totalMins <= 0) return "";
+    const h = Math.floor(totalMins / 60);
+    const m = totalMins % 60;
+    return `${h}h${m > 0 ? String(m).padStart(2, "0") + "m" : ""}`;
+  }
+
+  function resolveName(id, a) {
+    const live = allWorkers.find(w => w.id === id);
+    return live?.name || (a.workerNames || {})[id] || `Func. #${id.slice(-4)}`;
   }
 
   function updateWorks(val) { updateDayRecord({ works: val }); }
@@ -986,9 +1025,12 @@ function AttendanceTab() {
   }).sort((a, b) => b.date.localeCompare(a.date));
 
   function doExport() {
-    const rows = [["Data", "Funcionário", "Trabalhos Realizados"]];
+    const rows = [["Data", "Hora Entrada", "Intervalo (min)", "Hora Saída", "Total Horas", "Funcionário", "Trabalhos Realizados"]];
     histFiltered.forEach(a => {
-      allWorkers.filter(w => (a.present || []).includes(w.id)).forEach(w => rows.push([a.date, w.name, a.works || ""]));
+      (a.present || []).forEach(id => {
+        const wh = (a.workerHours || {})[id] || {};
+        rows.push([a.date, wh.in || "", wh.break || "", wh.out || "", calcTotalHours(wh), resolveName(id, a), a.works || ""]);
+      });
     });
     exportToCSV(rows, `folha_ponto.csv`);
   }
@@ -1000,9 +1042,16 @@ function AttendanceTab() {
   const [calY, calM] = calMonth.split("-").map(Number);
   const monthLabel = new Date(calY, calM - 1, 1).toLocaleDateString("pt-PT", { month: "long", year: "numeric" });
 
+  const sectionHdr = (label, open, toggle, extra) => (
+    <button onClick={toggle} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", background: "none", border: "none", borderBottom: open ? "1px solid #f1f5f9" : "none", cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 14, color: "#1e293b" }}>
+      <span style={{ display: "flex", alignItems: "center", gap: 8 }}>{label}{extra}</span>
+      <span style={{ fontSize: 12, color: "#94a3b8" }}>{open ? "▲" : "▼"}</span>
+    </button>
+  );
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {/* Manage workers modal */}
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {/* Modal */}
       {showManageWorkers && (
         <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(15,23,42,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={() => setShowManageWorkers(false)}>
           <div style={{ background: "#fff", borderRadius: 20, width: "100%", maxWidth: 460, boxShadow: "0 24px 60px rgba(0,0,0,0.18)", overflow: "hidden", maxHeight: "80vh", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
@@ -1025,114 +1074,164 @@ function AttendanceTab() {
         <button onClick={() => setShowManageWorkers(true)} style={{ ...S.btnGhost, fontSize: 12, padding: "5px 12px", border: "1.5px solid #c7d2fe", color: "#c7d2fe" }}>⚙️ Funcionários</button>
       </div>
 
-      {/* Calendar */}
+      {/* ── Secção Presenças (colapsável) ── */}
       <div style={{ ...S.card, padding: 0 }}>
-        {/* Month nav */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", borderBottom: "1px solid #f1f5f9" }}>
-          <button onClick={() => shiftMonth(-1)} style={{ ...S.btnGhost, padding: "6px 14px", fontSize: 18, lineHeight: 1 }}>‹</button>
-          <span style={{ fontFamily: "'Sora',sans-serif", fontWeight: 800, fontSize: 15, color: "#1e293b", textTransform: "capitalize" }}>{monthLabel}</span>
-          <button onClick={() => shiftMonth(1)} style={{ ...S.btnGhost, padding: "6px 14px", fontSize: 18, lineHeight: 1 }}>›</button>
-        </div>
-        {/* Day-of-week headers */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", padding: "8px 12px 0" }}>
-          {["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"].map((d, i) => (
-            <div key={d} style={{ textAlign: "center", fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 700, color: i >= 5 ? "#f59e0b" : "#94a3b8", padding: "4px 0" }}>{d}</div>
-          ))}
-        </div>
-        {/* Day cells */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3, padding: "6px 12px 14px" }}>
-          {calCells.map((day, i) => {
-            if (!day) return <div key={`b${i}`} />;
-            const dateStr = `${calMonth}-${String(day).padStart(2, "0")}`;
-            const rec = allAttendance.find(a => a.date === dateStr);
-            const count = rec ? (rec.present || []).length : 0;
-            const isToday = dateStr === today;
-            const isSel = dateStr === selDate;
-            const isWeekend = i % 7 >= 5;
-            return (
-              <button
-                key={dateStr}
-                onClick={() => setSelDate(dateStr)}
-                style={{
-                  padding: "7px 2px 6px",
-                  borderRadius: 10,
-                  border: isSel ? "2.5px solid #6366f1" : isToday ? "2px solid #a5b4fc" : "1.5px solid transparent",
-                  background: isSel ? "#6366f1" : isToday ? "#eef2ff" : isWeekend ? "#fafafa" : "transparent",
-                  cursor: "pointer",
-                  display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
-                  minHeight: 56,
-                }}
-              >
-                <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 13, fontWeight: isToday || isSel ? 800 : 600, color: isSel ? "#fff" : isToday ? "#6366f1" : isWeekend ? "#f59e0b" : "#475569" }}>{day}</span>
-                {count > 0 && (
-                  <span style={{ background: isSel ? "rgba(255,255,255,0.25)" : "#dcfce7", color: isSel ? "#fff" : "#16a34a", fontFamily: "'Sora',sans-serif", fontSize: 10, fontWeight: 700, padding: "1px 5px", borderRadius: 99 }}>{count}👷</span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+        {sectionHdr("📅 Presenças", openPresencas, () => setOpenPresencas(v => !v))}
+        {openPresencas && (
+          <>
+            {/* Navegação de mês */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: "1px solid #f1f5f9" }}>
+              <button onClick={() => shiftMonth(-1)} style={{ ...S.btnGhost, padding: "6px 14px", fontSize: 18, lineHeight: 1 }}>‹</button>
+              <span style={{ fontFamily: "'Sora',sans-serif", fontWeight: 800, fontSize: 15, color: "#1e293b", textTransform: "capitalize" }}>{monthLabel}</span>
+              <button onClick={() => shiftMonth(1)} style={{ ...S.btnGhost, padding: "6px 14px", fontSize: 18, lineHeight: 1 }}>›</button>
+            </div>
+            {/* Cabeçalhos dias */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", padding: "8px 12px 0" }}>
+              {["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"].map((d, i) => (
+                <div key={d} style={{ textAlign: "center", fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 700, color: i >= 5 ? "#f59e0b" : "#94a3b8", padding: "4px 0" }}>{d}</div>
+              ))}
+            </div>
+            {/* Células de dia */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3, padding: "6px 12px 14px" }}>
+              {calCells.map((day, i) => {
+                if (!day) return <div key={`b${i}`} />;
+                const dateStr = `${calMonth}-${String(day).padStart(2, "0")}`;
+                const rec = allAttendance.find(a => a.date === dateStr);
+                const count = rec ? (rec.present || []).length : 0;
+                const isToday = dateStr === today;
+                const isSel = dateStr === selDate;
+                const isWeekend = i % 7 >= 5;
+                return (
+                  <button key={dateStr} onClick={() => setSelDate(dateStr)} style={{ padding: "7px 2px 6px", borderRadius: 10, border: isSel ? "2.5px solid #6366f1" : isToday ? "2px solid #a5b4fc" : "1.5px solid transparent", background: isSel ? "#6366f1" : isToday ? "#eef2ff" : isWeekend ? "#fafafa" : "transparent", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, minHeight: 56 }}>
+                    <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 13, fontWeight: isToday || isSel ? 800 : 600, color: isSel ? "#fff" : isToday ? "#6366f1" : isWeekend ? "#f59e0b" : "#475569" }}>{day}</span>
+                    {count > 0 && <span style={{ background: isSel ? "rgba(255,255,255,0.25)" : "#dcfce7", color: isSel ? "#fff" : "#16a34a", fontFamily: "'Sora',sans-serif", fontSize: 10, fontWeight: 700, padding: "1px 5px", borderRadius: 99 }}>{count}👷</span>}
+                  </button>
+                );
+              })}
+            </div>
 
-      {/* Selected day panel */}
-      <div style={S.card}>
-        <div style={S.cardHeader}>
-          📅 {new Date(selDate + "T12:00:00").toLocaleDateString("pt-PT", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}
-          <span style={{ marginLeft: 10, fontSize: 12, color: "#22c55e", fontWeight: 600 }}>{present.length} presente(s) / {allWorkers.length}</span>
-        </div>
-        <div style={{ padding: "14px 18px" }}>
-          {allWorkers.length === 0
-            ? <div style={{ textAlign: "center", padding: 20, color: "#94a3b8", fontFamily: "'Sora',sans-serif", fontSize: 13 }}>Nenhum funcionário. Adiciona em ⚙️ Funcionários.</div>
-            : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {allWorkers.map(w => {
-                  const isPresent = present.includes(w.id);
-                  return (
-                    <button key={w.id} onClick={() => toggleWorker(w.id)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", borderRadius: 12, border: `2px solid ${isPresent ? "#22c55e" : "#e2e8f0"}`, background: isPresent ? "#f0fdf4" : "#f8fafc", cursor: "pointer", textAlign: "left" }}>
-                      <div style={{ width: 28, height: 28, borderRadius: "50%", border: `2.5px solid ${isPresent ? "#22c55e" : "#cbd5e1"}`, background: isPresent ? "#22c55e" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                        {isPresent && <svg width="14" height="14" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
-                      </div>
-                      <span style={{ flex: 1, fontFamily: "'Sora',sans-serif", fontWeight: 600, fontSize: 15, color: isPresent ? "#16a34a" : "#475569" }}>{w.name}</span>
-                      <span style={{ padding: "3px 12px", borderRadius: 99, fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, background: isPresent ? "#dcfce7" : "#f1f5f9", color: isPresent ? "#16a34a" : "#94a3b8" }}>{isPresent ? "✓ Presente" : "Ausente"}</span>
-                    </button>
-                  );
-                })}
+            {/* Detalhes do dia selecionado */}
+            <div style={{ borderTop: "2px solid #e2e8f0", background: "#f8fafc" }}>
+              <div style={{ padding: "12px 18px 6px" }}>
+                <span style={{ fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, color: "#1e293b" }}>
+                  📅 {new Date(selDate + "T12:00:00").toLocaleDateString("pt-PT", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}
+                </span>
               </div>
-          }
-          <div style={{ marginTop: 18, borderTop: "1px solid #f1f5f9", paddingTop: 16 }}>
-            <label style={S.label}>🔧 Trabalhos Realizados no Dia</label>
-            <textarea value={works} onChange={e => updateWorks(e.target.value)} placeholder="Ex: Passagem de cabos no piso 2, instalação de tomadas no quarto 3…" rows={3} style={{ ...S.input, resize: "vertical", lineHeight: 1.5, fontSize: 13 }} />
-          </div>
-        </div>
+
+              {/* Sub-secção funcionários (colapsável) */}
+              <div style={{ borderTop: "1px solid #e2e8f0" }}>
+                <button onClick={() => setOpenWorkerList(v => !v)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 18px", background: "none", border: "none", cursor: "pointer", fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, color: "#1e293b" }}>
+                  <span>👷 Funcionários <span style={{ fontWeight: 600, color: present.length > 0 ? "#22c55e" : "#94a3b8", fontSize: 12 }}>{present.length}/{allWorkers.length} presentes</span></span>
+                  <span style={{ fontSize: 11, color: "#94a3b8" }}>{openWorkerList ? "▲" : "▼"}</span>
+                </button>
+                {openWorkerList && (
+                  <div style={{ padding: "0 18px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
+                    {allWorkers.length === 0
+                      ? <div style={{ textAlign: "center", padding: 16, color: "#94a3b8", fontFamily: "'Sora',sans-serif", fontSize: 13 }}>Nenhum funcionário. Adiciona em ⚙️ Funcionários.</div>
+                      : allWorkers.map(w => {
+                          const isPresent = present.includes(w.id);
+                          const wh = getWorkerHours(w.id);
+                          const total = calcTotalHours(wh);
+                          return (
+                            <div key={w.id} style={{ borderRadius: 12, border: `2px solid ${isPresent ? "#22c55e" : "#e2e8f0"}`, overflow: "hidden" }}>
+                              <button onClick={() => toggleWorker(w.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", width: "100%", background: isPresent ? "#f0fdf4" : "#fff", border: "none", cursor: "pointer", textAlign: "left" }}>
+                                <div style={{ width: 26, height: 26, borderRadius: "50%", border: `2.5px solid ${isPresent ? "#22c55e" : "#cbd5e1"}`, background: isPresent ? "#22c55e" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                                  {isPresent && <svg width="13" height="13" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                                </div>
+                                <span style={{ flex: 1, fontFamily: "'Sora',sans-serif", fontWeight: 600, fontSize: 14, color: isPresent ? "#16a34a" : "#475569" }}>{w.name}</span>
+                                <span style={{ padding: "2px 10px", borderRadius: 99, fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 700, background: isPresent ? "#dcfce7" : "#f1f5f9", color: isPresent ? "#16a34a" : "#94a3b8" }}>{isPresent ? "✓ Presente" : "Ausente"}</span>
+                              </button>
+                              {isPresent && (
+                                <div style={{ padding: "8px 14px 12px", borderTop: "1px solid #dcfce7", background: "#f0fdf4", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+                                  <div>
+                                    <label style={{ ...S.label, fontSize: 10 }}>Entrada</label>
+                                    <input type="time" value={wh.in || ""} onChange={e => updateWorkerHours(w.id, "in", e.target.value)} style={{ ...S.input, width: 118, padding: "5px 8px", fontSize: 13 }} />
+                                  </div>
+                                  <div>
+                                    <label style={{ ...S.label, fontSize: 10 }}>Intervalo (min)</label>
+                                    <input type="number" min={0} max={480} value={wh.break || ""} onChange={e => updateWorkerHours(w.id, "break", e.target.value)} style={{ ...S.input, width: 88, padding: "5px 8px", fontSize: 13 }} placeholder="0" />
+                                  </div>
+                                  <div>
+                                    <label style={{ ...S.label, fontSize: 10 }}>Saída</label>
+                                    <input type="time" value={wh.out || ""} onChange={e => updateWorkerHours(w.id, "out", e.target.value)} style={{ ...S.input, width: 118, padding: "5px 8px", fontSize: 13 }} />
+                                  </div>
+                                  {total && (
+                                    <div style={{ padding: "6px 12px", background: "#dcfce7", borderRadius: 8, fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 700, color: "#16a34a" }}>
+                                      ⏱ {total}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                    }
+                  </div>
+                )}
+              </div>
+
+              {/* Trabalhos realizados */}
+              <div style={{ padding: "0 18px 16px", borderTop: "1px solid #e2e8f0" }}>
+                <div style={{ paddingTop: 12 }}>
+                  <label style={S.label}>🔧 Trabalhos Realizados no Dia</label>
+                  <textarea value={works} onChange={e => updateWorks(e.target.value)} placeholder="Ex: Passagem de cabos no piso 2, instalação de tomadas…" rows={3} style={{ ...S.input, resize: "vertical", lineHeight: 1.5, fontSize: 13 }} />
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Histórico */}
-      <div style={S.card}>
-        <div style={{ ...S.cardHeader, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
-          <span>📋 Histórico</span>
-          {histFiltered.length > 0 && <button onClick={doExport} style={{ ...S.btnGhost, fontSize: 12, padding: "5px 12px", border: "1.5px solid #22c55e", color: "#16a34a" }}>📥 CSV</button>}
-        </div>
-        <div style={{ padding: "12px 18px", display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <div><label style={S.label}>De</label><input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} style={S.input} /></div>
-          <div><label style={S.label}>Até</label><input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} style={S.input} /></div>
-          {(filterFrom || filterTo) && <button onClick={() => { setFilterFrom(""); setFilterTo(""); }} style={{ ...S.btnGhost, alignSelf: "flex-end" }}>✕</button>}
-        </div>
-        {histFiltered.length === 0
-          ? <div style={{ textAlign: "center", padding: 30, color: "#94a3b8", fontFamily: "'Sora',sans-serif", fontSize: 13 }}>Nenhum registo.</div>
-          : histFiltered.map(a => {
-              const presentNames = allWorkers.filter(w => (a.present || []).includes(w.id));
-              return (
-                <div key={a.date} style={{ padding: "14px 18px", borderTop: "1px solid #f1f5f9" }}>
-                  <div style={{ fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, color: "#1e293b", marginBottom: 8 }}>
-                    📅 {new Date(a.date + "T12:00:00").toLocaleDateString("pt-PT", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}
-                    <span style={{ marginLeft: 10, fontSize: 12, color: "#22c55e", fontWeight: 600 }}>{presentNames.length} presente(s)</span>
-                  </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: a.works ? 8 : 0 }}>
-                    {presentNames.map(n => <span key={n.id} style={{ padding: "3px 10px", borderRadius: 99, background: "#dcfce7", color: "#16a34a", fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 600 }}>✓ {n.name}</span>)}
-                  </div>
-                  {a.works && <div style={{ marginTop: 6, padding: "8px 12px", background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0", fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#475569" }}>🔧 <em>{a.works}</em></div>}
-                </div>
-              );
-            })
-        }
+      {/* ── Secção Histórico (colapsável) ── */}
+      <div style={{ ...S.card, padding: 0 }}>
+        {sectionHdr(
+          "📋 Histórico",
+          openHistorico,
+          () => setOpenHistorico(v => !v),
+          histFiltered.length > 0 && openHistorico
+            ? <button onClick={e => { e.stopPropagation(); doExport(); }} style={{ ...S.btnGhost, fontSize: 11, padding: "3px 10px", border: "1.5px solid #22c55e", color: "#16a34a" }}>📥 CSV</button>
+            : null
+        )}
+        {openHistorico && (
+          <>
+            <div style={{ padding: "12px 18px", display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <div><label style={S.label}>De</label><input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} style={S.input} /></div>
+              <div><label style={S.label}>Até</label><input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} style={S.input} /></div>
+              {(filterFrom || filterTo) && <button onClick={() => { setFilterFrom(""); setFilterTo(""); }} style={{ ...S.btnGhost, alignSelf: "flex-end" }}>✕</button>}
+            </div>
+            {histFiltered.length === 0
+              ? <div style={{ textAlign: "center", padding: 30, color: "#94a3b8", fontFamily: "'Sora',sans-serif", fontSize: 13 }}>Nenhum registo.</div>
+              : histFiltered.map(a => {
+                  const presentIds = a.present || [];
+                  const presentWorkers = presentIds.map(id => ({ id, name: resolveName(id, a), wh: (a.workerHours || {})[id] || {} }));
+                  return (
+                    <div key={a.date} style={{ padding: "14px 18px", borderTop: "1px solid #f1f5f9" }}>
+                      <div style={{ fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, color: "#1e293b", marginBottom: 8 }}>
+                        📅 {new Date(a.date + "T12:00:00").toLocaleDateString("pt-PT", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}
+                        <span style={{ marginLeft: 10, fontSize: 12, color: "#22c55e", fontWeight: 600 }}>{presentWorkers.length} presente(s)</span>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: a.works ? 8 : 0 }}>
+                        {presentWorkers.map(w => {
+                          const total = calcTotalHours(w.wh);
+                          return (
+                            <div key={w.id} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              <span style={{ padding: "3px 10px", borderRadius: 99, background: "#dcfce7", color: "#16a34a", fontFamily: "'Sora',sans-serif", fontSize: 12, fontWeight: 600 }}>✓ {w.name}</span>
+                              {(w.wh.in || w.wh.out) && (
+                                <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 11, color: "#64748b" }}>
+                                  {w.wh.in && `⏰ ${w.wh.in}`}{w.wh.out && ` → ${w.wh.out}`}{w.wh.break ? ` (−${w.wh.break}m)` : ""}{total ? ` = ${total}` : ""}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {a.works && <div style={{ marginTop: 6, padding: "8px 12px", background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0", fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#475569" }}>🔧 <em>{a.works}</em></div>}
+                    </div>
+                  );
+                })
+            }
+          </>
+        )}
       </div>
     </div>
   );
@@ -1525,6 +1624,112 @@ function SchemasTab() {
     </div>
   );
 }
+// ─── FASE DE OBRA TAB ─────────────────────────────────────────
+function FaseObraTab() {
+  const [phases, setPhases, loading] = useFirebase("phases", []);
+  const [adding, setAdding] = useState(false);
+  const [newText, setNewText] = useState("");
+
+  const list = phases || [];
+  const STATUSES = {
+    pendente:  { label: "Pendente",   color: "#94a3b8", bg: "#f8fafc"  },
+    em_curso:  { label: "Em Curso",   color: "#f59e0b", bg: "#fffbeb"  },
+    concluido: { label: "Concluído",  color: "#22c55e", bg: "#f0fdf4"  },
+  };
+
+  function cycleStatus(id) {
+    const order = ["pendente", "em_curso", "concluido"];
+    setPhases(list.map(p => {
+      if (p.id !== id) return p;
+      const cur = p.status || "pendente";
+      return { ...p, status: order[(order.indexOf(cur) + 1) % 3] };
+    }));
+  }
+
+  function addPhase() {
+    if (!newText.trim()) return;
+    setPhases([...list, { id: genId(), text: newText.trim(), status: "pendente" }]);
+    setNewText(""); setAdding(false);
+  }
+
+  function moveUp(idx) {
+    if (idx === 0) return;
+    const a = [...list]; [a[idx - 1], a[idx]] = [a[idx], a[idx - 1]]; setPhases(a);
+  }
+
+  function moveDown(idx) {
+    if (idx === list.length - 1) return;
+    const a = [...list]; [a[idx], a[idx + 1]] = [a[idx + 1], a[idx]]; setPhases(a);
+  }
+
+  if (loading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
+
+  const done = list.filter(p => p.status === "concluido").length;
+  const inProg = list.filter(p => p.status === "em_curso").length;
+  const pct = list.length ? Math.round((done / list.length) * 100) : 0;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <div style={{ background: "#1e293b", borderRadius: 16, padding: "18px 20px", display: "flex", alignItems: "center", gap: 14 }}>
+        <span style={{ fontSize: 26 }}>🏗️</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ color: "#fff", fontWeight: 800, fontSize: 17, fontFamily: "'Sora',sans-serif" }}>Fases de Obra</div>
+          <div style={{ color: "#64748b", fontSize: 12, fontFamily: "'Sora',sans-serif" }}>{done}/{list.length} concluídas{inProg > 0 ? ` · ${inProg} em curso` : ""}</div>
+        </div>
+        {list.length > 0 && (
+          <div style={{ textAlign: "right" }}>
+            <div style={{ color: pct === 100 ? "#22c55e" : "#6366f1", fontFamily: "'Sora',sans-serif", fontSize: 18, fontWeight: 800 }}>{pct}%</div>
+          </div>
+        )}
+      </div>
+
+      {list.length > 0 && (
+        <div style={{ height: 6, background: "#f1f5f9", borderRadius: 99, overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${pct}%`, background: pct === 100 ? "linear-gradient(90deg,#22c55e,#16a34a)" : "linear-gradient(90deg,#6366f1,#4f46e5)", borderRadius: 99, transition: "width 0.4s" }} />
+        </div>
+      )}
+
+      <div style={{ ...S.card, padding: 0 }}>
+        {list.length === 0 && (
+          <div style={{ textAlign: "center", padding: "32px 20px", color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>🏗️</div>
+            <div>Sem fases de obra. Adiciona abaixo.</div>
+          </div>
+        )}
+        {list.map((phase, idx) => {
+          const st = STATUSES[phase.status || "pendente"];
+          return (
+            <div key={phase.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: idx < list.length - 1 ? "1px solid #f1f5f9" : "none", background: st.bg }}>
+              <button onClick={() => cycleStatus(phase.id)} title="Clica para mudar estado" style={{ padding: "4px 10px", borderRadius: 99, background: "transparent", border: `1.5px solid ${st.color}`, color: st.color, fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>
+                {st.label}
+              </button>
+              <span style={{ flex: 1, fontFamily: "'Sora',sans-serif", fontSize: 14, fontWeight: 600, color: phase.status === "concluido" ? "#94a3b8" : "#1e293b", textDecoration: phase.status === "concluido" ? "line-through" : "none" }}>
+                {phase.text}
+              </span>
+              <div style={{ display: "flex", flexDirection: "column", gap: 1, flexShrink: 0 }}>
+                <button onClick={() => moveUp(idx)} disabled={idx === 0} style={{ background: "transparent", border: "none", cursor: idx === 0 ? "default" : "pointer", color: idx === 0 ? "#e2e8f0" : "#94a3b8", fontSize: 10, padding: "1px 4px", lineHeight: 1 }}>▲</button>
+                <button onClick={() => moveDown(idx)} disabled={idx === list.length - 1} style={{ background: "transparent", border: "none", cursor: idx === list.length - 1 ? "default" : "pointer", color: idx === list.length - 1 ? "#e2e8f0" : "#94a3b8", fontSize: 10, padding: "1px 4px", lineHeight: 1 }}>▼</button>
+              </div>
+              <ConfirmDeleteBtn onConfirm={() => setPhases(list.filter(p => p.id !== phase.id))} message={`Apagar "${phase.text}"?`} />
+            </div>
+          );
+        })}
+        <div style={{ padding: "12px 16px", borderTop: list.length > 0 ? "1px solid #f1f5f9" : "none" }}>
+          {adding ? (
+            <div style={{ display: "flex", gap: 8 }}>
+              <input autoFocus value={newText} onChange={e => setNewText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addPhase(); if (e.key === "Escape") setAdding(false); }} placeholder="Nome da fase…" style={{ ...S.input, flex: 1, fontSize: 13 }} />
+              <button onClick={addPhase} style={{ ...S.btnPrimary, padding: "7px 14px", fontSize: 13 }}>+</button>
+              <button onClick={() => setAdding(false)} style={{ ...S.btnGhost, padding: "7px 10px", fontSize: 13 }}>✕</button>
+            </div>
+          ) : (
+            <button onClick={() => setAdding(true)} style={{ background: "transparent", border: "1.5px dashed #a5b4fc", borderRadius: 9, padding: "7px 14px", cursor: "pointer", color: "#6366f1", fontFamily: "'Sora',sans-serif", fontSize: 13, fontWeight: 600, width: "100%", textAlign: "left" }}>+ Adicionar Fase de Obra</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const PIN_MASTER = "436900";
 
 function SettingsTab() {

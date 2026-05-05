@@ -38,6 +38,19 @@ async function firebaseSet(path, value) {
   });
 }
 
+// Calculate total hours from workerHours object
+function calcTotalHours(wh) {
+  if (!wh || !wh.in || !wh.out) return "";
+  const [ih, im] = wh.in.split(":").map(Number);
+  const [oh, om] = wh.out.split(":").map(Number);
+  let totalMins = (oh * 60 + om) - (ih * 60 + im);
+  if (wh.break) totalMins -= parseInt(wh.break) || 0;
+  if (totalMins <= 0) return "";
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  return `${h}h${m > 0 ? String(m).padStart(2, "0") + "m" : ""}`;
+}
+
 module.exports = async function handler(req, res) {
   // CORS for browser force-send calls
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -81,15 +94,18 @@ module.exports = async function handler(req, res) {
     }
 
     if (!force) {
-      // Check configured day (JS getDay: 0=Sun, 1=Mon…6=Sat)
-      const configDay  = parseInt(config.reportDay  ?? 1);    // default Monday
-      const configHour = parseInt(config.reportHour ?? 8);    // default 8h Portugal = 7h UTC
+      // Portugal timezone: UTC+1 winter / UTC+2 summer (DST roughly Mar–Oct)
       const nowUTC = new Date();
-      const ptHour = (nowUTC.getUTCHours() + 1) % 24;        // Portugal ≈ UTC+1
-      const ptDay  = new Date(nowUTC.getTime() + 3600000).getUTCDay(); // shift 1h for PT
+      const month = nowUTC.getUTCMonth() + 1; // 1–12
+      const ptOffset = (month >= 3 && month <= 10) ? 2 : 1;
+      const ptTime = new Date(nowUTC.getTime() + ptOffset * 3600000);
+      const ptDay  = ptTime.getUTCDay(); // 0=Sun, 1=Mon…
 
-      if (ptDay !== configDay || ptHour !== configHour) {
-        return res.status(200).json({ skipped: true, reason: `Não é o dia/hora configurado (config: dia ${configDay} às ${configHour}h; agora: dia ${ptDay} às ${ptHour}h PT).` });
+      const configDay = parseInt(config.reportDay ?? 1); // default Monday
+
+      // Only check the day (not the hour) — cron handles timing, reportLastSent prevents duplicates
+      if (ptDay !== configDay) {
+        return res.status(200).json({ skipped: true, reason: `Não é o dia configurado (config: dia ${configDay}; hoje: dia ${ptDay} PT).` });
       }
 
       // Check if already sent this week
@@ -109,20 +125,41 @@ module.exports = async function handler(req, res) {
       ...new Set([...weekAtt.map(a => a.date), ...weekStock.map(e => e.date)]),
     ].sort();
 
-    const rows = [["Data", "Funcionários", "Trabalhos Realizados", "Material", "Código", "Quantidade", "Unidade"]];
+    const rows = [["Data", "Hora Entrada", "Intervalo (min)", "Hora Saída", "Total Horas", "Funcionário", "Trabalhos Realizados", "Material", "Código", "Quantidade", "Unidade"]];
 
     for (const date of allDates) {
       const attRec   = weekAtt.find(a => a.date === date);
       const dayStock = weekStock.filter(e => e.date === date);
-      const workerNames = attRec
-        ? workers.filter(w => (attRec.present || []).includes(w.id)).map(w => w.name).join(", ")
-        : "";
-      const works = attRec?.works || "";
+      const works    = attRec?.works || "";
 
-      if (dayStock.length > 0) {
-        dayStock.forEach(e => rows.push([date, workerNames, works, e.name || "", e.code || "", e.qty ?? "", e.unit || ""]));
-      } else {
-        rows.push([date, workerNames, works, "", "", "", ""]);
+      // Build worker entries with hours
+      const presentIds = attRec ? (attRec.present || []) : [];
+      const workerNamesMap = attRec?.workerNames || {};
+      const workerEntries = presentIds.map(id => {
+        const live = workers.find(w => w.id === id);
+        const name = live?.name || workerNamesMap[id] || id;
+        const wh = (attRec?.workerHours || {})[id] || {};
+        return { name, wh };
+      });
+
+      const maxRows = Math.max(workerEntries.length || 1, dayStock.length || 1);
+
+      for (let i = 0; i < maxRows; i++) {
+        const w  = workerEntries[i];
+        const st = dayStock[i];
+        rows.push([
+          date,
+          w?.wh?.in    || "",
+          w?.wh?.break || "",
+          w?.wh?.out   || "",
+          w ? calcTotalHours(w.wh) : "",
+          w?.name      || "",
+          i === 0 ? works : "",
+          st?.name     || "",
+          st?.code     || "",
+          st?.qty      ?? "",
+          st?.unit     || "",
+        ]);
       }
     }
 
