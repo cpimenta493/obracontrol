@@ -130,7 +130,22 @@ const UNITS = ["un", "m", "m²", "m³", "kg", "L", "rolo", "cx", "saco"];
 function todayStr() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
 function waLink(t) { return `https://wa.me/?text=${encodeURIComponent(t)}`; }
 function fmtQty(q) { return q % 1 === 0 ? q : parseFloat(q).toFixed(2); }
-function exportToCSV(rows, filename) { const csv = "sep=;\n" + rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(";")).join("\n"); const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url); }
+function fmtDatePT(d) { if (!d) return ""; const p = d.split("-"); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : d; }
+
+const XLSX_BORDER = { top: { style: "thin", color: { rgb: "000000" } }, left: { style: "thin", color: { rgb: "000000" } }, bottom: { style: "thin", color: { rgb: "000000" } }, right: { style: "thin", color: { rgb: "000000" } } };
+const XLSX_HDR = { font: { name: "Arial", sz: 11, bold: true }, fill: { patternType: "solid", fgColor: { rgb: "C9DAF8" } }, alignment: { horizontal: "center", vertical: "center", wrapText: true }, border: XLSX_BORDER };
+const XLSX_DATA = { font: { name: "Arial", sz: 10 }, fill: { patternType: "none" }, alignment: { horizontal: "center", vertical: "center", wrapText: true }, border: XLSX_BORDER };
+
+function xlsxCell(ws, col, row, value, style) { ws[`${col}${row}`] = { v: value, t: typeof value === "number" ? "n" : "s", s: style }; }
+
+function xlsxSave(ws, sheetName, filename) {
+  const wb = XLSXStyle.utils.book_new();
+  XLSXStyle.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31) || "dados");
+  const buf = XLSXStyle.write(wb, { bookType: "xlsx", type: "array" });
+  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
+}
 
 // ─── CHECKLIST ITEM ───────────────────────────────────────────
 function ChecklistItem({ item, onChange, onRemove }) {
@@ -244,7 +259,14 @@ function CatalogModal({ catalog, onSave, onClose }) {
   const [items, setItems] = useState(catalog.map(c => ({ ...c }))); const [newName, setNewName] = useState(""); const [newCode, setNewCode] = useState(""); const [newUnit, setNewUnit] = useState("un"); const [adding, setAdding] = useState(false);
   function updateItem(id, f, v) { setItems(items.map(i => i.id === id ? { ...i, [f]: v } : i)); }
   function addItem() { if (!newName.trim()) return; setItems([...items, { id: genId(), code: newCode.trim(), name: newName.trim(), unit: newUnit }]); setNewName(""); setNewCode(""); setNewUnit("un"); setAdding(false); }
-  function doExport() { exportToCSV([["Código", "Nome", "Unidade"], ...items.map(i => [i.code || "", i.name, i.unit])], "catalogo_materiais.csv"); }
+  function doExport() {
+    const ws = {};
+    xlsxCell(ws, "B", 1, "Código", XLSX_HDR); xlsxCell(ws, "C", 1, "Nome", XLSX_HDR); xlsxCell(ws, "D", 1, "Unidade", XLSX_HDR);
+    items.forEach((item, idx) => { const r = idx + 2; xlsxCell(ws, "B", r, item.code || "", XLSX_DATA); xlsxCell(ws, "C", r, item.name, XLSX_DATA); xlsxCell(ws, "D", r, item.unit, XLSX_DATA); });
+    ws["!ref"] = `A1:D${items.length + 1}`;
+    ws["!cols"] = [{ wch: 2 }, { wch: 14 }, { wch: 42 }, { wch: 11 }];
+    xlsxSave(ws, "catalogo_materiais", "catalogo_materiais.xlsx");
+  }
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(15,23,42,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
       <div style={{ background: "#fff", borderRadius: 20, width: "100%", maxWidth: 580, boxShadow: "0 24px 60px rgba(0,0,0,0.18)", overflow: "hidden", maxHeight: "90vh", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
@@ -281,7 +303,7 @@ function CatalogModal({ catalog, onSave, onClose }) {
         <div style={{ padding: "16px 24px", borderTop: "1.5px solid #e2e8f0", display: "flex", gap: 10, background: "#f8fafc" }}>
           <button onClick={() => onSave(items)} style={S.btnPrimary}>✓ Guardar</button>
           <button onClick={onClose} style={S.btnGhost}>Cancelar</button>
-          <button onClick={doExport} style={{ ...S.btnGhost, marginLeft: "auto", border: "1.5px solid #22c55e", color: "#16a34a" }}>📥 CSV</button>
+          <button onClick={doExport} style={{ ...S.btnGhost, marginLeft: "auto", border: "1.5px solid #16a34a", color: "#15803d" }}>📊 Excel</button>
         </div>
       </div>
     </div>
@@ -868,7 +890,34 @@ function StockTab() {
   const summaryList = Object.values(summary).sort((a, b) => a.name.localeCompare(b.name));
   const byDay = {}; filtered.forEach(e => { if (!byDay[e.date]) byDay[e.date] = []; byDay[e.date].push(e); });
   const days = Object.keys(byDay).sort((a, b) => b.localeCompare(a));
-  function doExportEntries() { exportToCSV([["Data", "Código", "Material", "Quantidade", "Unidade", "Observações"], ...filtered.map(e => [e.date, e.code || "", e.name, e.qty, e.unit, e.obs || ""])], `materiais_gastos.csv`); }
+  function doExportEntries() {
+    const ws = {};
+    const merges = [];
+    xlsxCell(ws, "B", 1, "Data", XLSX_HDR); xlsxCell(ws, "C", 1, "Código", XLSX_HDR); xlsxCell(ws, "D", 1, "Material", XLSX_HDR); xlsxCell(ws, "E", 1, "Quantidade", XLSX_HDR); xlsxCell(ws, "F", 1, "Unidade", XLSX_HDR); xlsxCell(ws, "G", 1, "Observações", XLSX_HDR);
+    const sorted = [...filtered].sort((a, b) => a.date.localeCompare(b.date));
+    const byDate = {}; sorted.forEach(e => { if (!byDate[e.date]) byDate[e.date] = []; byDate[e.date].push(e); });
+    let row = 2;
+    Object.entries(byDate).sort(([a], [b]) => a.localeCompare(b)).forEach(([date, list]) => {
+      const start = row;
+      list.forEach((e, idx) => {
+        xlsxCell(ws, "B", row, idx === 0 ? fmtDatePT(date) : "", XLSX_DATA);
+        xlsxCell(ws, "C", row, e.code || "", XLSX_DATA);
+        xlsxCell(ws, "D", row, e.name, XLSX_DATA);
+        xlsxCell(ws, "E", row, typeof e.qty === "number" ? e.qty : parseFloat(e.qty) || 0, XLSX_DATA);
+        xlsxCell(ws, "F", row, e.unit, XLSX_DATA);
+        xlsxCell(ws, "G", row, e.obs || "", XLSX_DATA);
+        row++;
+      });
+      if (list.length > 1) merges.push({ s: { r: start - 1, c: 1 }, e: { r: row - 2, c: 1 } });
+    });
+    ws["!merges"] = merges;
+    ws["!ref"] = `A1:G${Math.max(row - 1, 1)}`;
+    ws["!cols"] = [{ wch: 2 }, { wch: 11 }, { wch: 12 }, { wch: 45 }, { wch: 11 }, { wch: 11 }, { wch: 30 }];
+    const allD = sorted.map(e => e.date).filter(Boolean);
+    const s = filterFrom || allD[0] || ""; const en = filterTo || allD[allD.length - 1] || "";
+    const name = s || en ? `materiais_gastos_${s.replace(/-/g,"")}_${en.replace(/-/g,"")}` : "materiais_gastos";
+    xlsxSave(ws, "materiais_gastos", `${name}.xlsx`);
+  }
   if (loading || catLoading || invLoading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -924,7 +973,7 @@ function StockTab() {
             <div><label style={S.label}>De</label><input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} style={S.input} /></div>
             <div><label style={S.label}>Até</label><input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} style={S.input} /></div>
             {(filterFrom || filterTo || search) && <button onClick={() => { setFilterFrom(""); setFilterTo(""); setSearch(""); }} style={{ ...S.btnGhost, alignSelf: "flex-end" }}>✕</button>}
-            {filtered.length > 0 && <button onClick={doExportEntries} style={{ ...S.btnGhost, alignSelf: "flex-end", border: "1.5px solid #22c55e", color: "#16a34a" }}>📥 CSV</button>}
+            {filtered.length > 0 && <button onClick={doExportEntries} style={{ ...S.btnGhost, alignSelf: "flex-end", border: "1.5px solid #16a34a", color: "#15803d" }}>📊 Excel</button>}
           </div>
           {summaryList.length > 0 && (<div style={S.card}><div style={S.cardHeader}>📊 Resumo{filterFrom || filterTo ? ` · ${filterFrom || "início"} → ${filterTo || "hoje"}` : " · Total"}</div><div style={{ padding: "12px 18px", display: "flex", flexWrap: "wrap", gap: 8 }}>{summaryList.map(s => (<div key={s.name + s.unit} style={{ background: "#eef2ff", border: "1.5px solid #c7d2fe", borderRadius: 10, padding: "7px 14px" }}>{s.code && <div style={{ fontFamily: "monospace", fontSize: 10, color: "#6366f1", fontWeight: 700 }}>{s.code}</div>}<div style={{ fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 13, color: "#4338ca" }}>{s.name}</div><div style={{ fontFamily: "'Sora',sans-serif", fontSize: 12, color: "#6366f1", fontWeight: 600 }}>{fmtQty(s.total)} {s.unit}</div></div>))}</div></div>)}
           {days.length === 0 ? <div style={{ textAlign: "center", padding: 40, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>Nenhum registo.</div> : days.map(day => (<div key={day} style={S.card}><div style={{ ...S.cardHeader, display: "flex", alignItems: "center", gap: 8 }}><span>📅</span><span>{new Date(day + "T12:00:00").toLocaleDateString("pt-PT", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}</span><span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>{byDay[day].length} reg.</span></div>{byDay[day].map((e, idx) => (<div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 18px", borderBottom: idx < byDay[day].length - 1 ? "1px solid #f1f5f9" : "none" }}>{e.code && <span style={{ fontFamily: "monospace", fontSize: 11, color: "#6366f1", background: "#eef2ff", padding: "2px 6px", borderRadius: 6, flexShrink: 0 }}>{e.code}</span>}<span style={{ flex: 1, fontFamily: "'Sora',sans-serif", fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{e.name}</span><span style={{ fontFamily: "'Sora',sans-serif", fontSize: 13, fontWeight: 700, color: "#6366f1", flexShrink: 0 }}>-{fmtQty(e.qty)} {e.unit}</span>{e.obs && <span style={{ fontFamily: "'Sora',sans-serif", fontSize: 11, color: "#94a3b8", flexShrink: 0 }}>💬 {e.obs}</span>}<ConfirmDeleteBtn onConfirm={() => deleteEntry(e.id)} /></div>))}</div>))}
@@ -1026,51 +1075,9 @@ function AttendanceTab() {
     return mf && mt && (a.present || []).length > 0;
   }).sort((a, b) => b.date.localeCompare(a.date));
 
-  function doExport() {
-    const allStock = stock || [];
-
-    // Tabela 1 — Funcionários (Data e Trabalhos só na 1ª linha do dia, como célula mesclada)
-    const t1 = [["Data", "Hora Entrada", "Intervalo (min)", "Hora Saída", "Total Horas", "Funcionários", "Trabalhos Realizados"]];
-    histFiltered.forEach(a => {
-      (a.present || []).forEach((id, idx) => {
-        const wh = (a.workerHours || {})[id] || {};
-        t1.push([
-          idx === 0 ? a.date : "",
-          wh.in || "",
-          wh.break || "",
-          wh.out || "",
-          calcTotalHours(wh),
-          resolveName(id, a),
-          idx === 0 ? a.works || "" : "",
-        ]);
-      });
-    });
-
-    // Tabela 2 — Materiais (filtrado pelas mesmas datas do histórico)
-    const histDates = new Set(histFiltered.map(a => a.date));
-    const stockFiltered = allStock.filter(e => {
-      const mf = filterFrom ? e.date >= filterFrom : true;
-      const mt = filterTo ? e.date <= filterTo : true;
-      return mf && mt;
-    }).sort((a, b) => a.date.localeCompare(b.date));
-
-    const t2 = [["Data", "Material", "Código", "Quantidade", "Unidade"]];
-    let lastStockDate = null;
-    stockFiltered.forEach(e => {
-      t2.push([e.date !== lastStockDate ? e.date : "", e.name || "", e.code || "", e.qty ?? "", e.unit || ""]);
-      lastStockDate = e.date;
-    });
-
-    // Combinar: tabela1, linha vazia, tabela2
-    const hasT2 = t2.length > 1;
-    const combined = [...t1, ...(hasT2 ? [[], ...t2] : [])];
-    exportToCSV(combined, `folha_ponto.csv`);
-  }
-
   function doExportXLSX() {
     const allStock = stock || [];
 
-    // Fix UTF-8 double-encoding corruption (e.g. FuncionÃ¡rios -> Funcionários)
     function fixText(str) {
       if (str === null || str === undefined) return "";
       return String(str)
@@ -1083,72 +1090,28 @@ function AttendanceTab() {
         .replace(/Ã/g, "Á");
     }
 
-    function fmtDate(d) {
-      if (!d) return "";
-      const p = d.split("-");
-      return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : d;
-    }
-
-    const thinBorder = {
-      top: { style: "thin", color: { rgb: "000000" } },
-      left: { style: "thin", color: { rgb: "000000" } },
-      bottom: { style: "thin", color: { rgb: "000000" } },
-      right: { style: "thin", color: { rgb: "000000" } },
-    };
-
-    const hdrStyle = {
-      font: { name: "Arial", sz: 11, bold: true },
-      fill: { patternType: "solid", fgColor: { rgb: "C9DAF8" } },
-      alignment: { horizontal: "center", vertical: "center", wrapText: true },
-      border: thinBorder,
-    };
-
-    const dataStyle = {
-      font: { name: "Arial", sz: 10 },
-      fill: { patternType: "none" },
-      alignment: { horizontal: "center", vertical: "center", wrapText: true },
-      border: thinBorder,
-    };
-
     const ws = {};
     const merges = [];
+    const sc = (col, row, val, sty) => xlsxCell(ws, col, row, val, sty);
 
-    function setCell(col, rowNum, value, style) {
-      const t = typeof value === "number" ? "n" : "s";
-      ws[`${col}${rowNum}`] = { v: value, t, s: style };
-    }
-
-    ws["!cols"] = [
-      { wch: 2 },
-      { wch: 11 },
-      { wch: 14.3 },
-      { wch: 68.7 },
-      { wch: 11 },
-      { wch: 11 },
-    ];
+    ws["!cols"] = [{ wch: 2 }, { wch: 11 }, { wch: 14.3 }, { wch: 68.7 }, { wch: 11 }, { wch: 11 }];
 
     // ── TABLE 1: Trabalhos ──
-    setCell("B", 1, "Data", hdrStyle);
-    setCell("C", 1, "Funcionários", hdrStyle);
-    setCell("D", 1, "Trabalhos Realizados", hdrStyle);
+    sc("B", 1, "Data", XLSX_HDR); sc("C", 1, "Funcionários", XLSX_HDR); sc("D", 1, "Trabalhos Realizados", XLSX_HDR);
 
     const sortedHistory = [...histFiltered].sort((a, b) => a.date.localeCompare(b.date));
-
     let currentRow = 2;
     sortedHistory.forEach(a => {
       const workers = (a.present || []).map(id => fixText(resolveName(id, a)));
       if (workers.length === 0) {
-        setCell("B", currentRow, fmtDate(a.date), dataStyle);
-        setCell("C", currentRow, "", dataStyle);
-        setCell("D", currentRow, fixText(a.works || ""), dataStyle);
-        currentRow++;
-        return;
+        sc("B", currentRow, fmtDatePT(a.date), XLSX_DATA); sc("C", currentRow, "", XLSX_DATA); sc("D", currentRow, fixText(a.works || ""), XLSX_DATA);
+        currentRow++; return;
       }
       const startRow = currentRow;
       workers.forEach((w, idx) => {
-        setCell("B", currentRow, idx === 0 ? fmtDate(a.date) : "", dataStyle);
-        setCell("C", currentRow, w, dataStyle);
-        setCell("D", currentRow, idx === 0 ? fixText(a.works || "") : "", dataStyle);
+        sc("B", currentRow, idx === 0 ? fmtDatePT(a.date) : "", XLSX_DATA);
+        sc("C", currentRow, w, XLSX_DATA);
+        sc("D", currentRow, idx === 0 ? fixText(a.works || "") : "", XLSX_DATA);
         currentRow++;
       });
       if (workers.length > 1) {
@@ -1159,66 +1122,39 @@ function AttendanceTab() {
 
     // ── TABLE 2: Materiais ──
     const stockFiltered = allStock
-      .filter(e => {
-        const mf = filterFrom ? e.date >= filterFrom : true;
-        const mt = filterTo ? e.date <= filterTo : true;
-        return mf && mt;
-      })
+      .filter(e => { const mf = filterFrom ? e.date >= filterFrom : true; const mt = filterTo ? e.date <= filterTo : true; return mf && mt; })
       .sort((a, b) => a.date.localeCompare(b.date));
 
     const t2Start = Math.max(11, currentRow + 1);
-    setCell("B", t2Start, "Data", hdrStyle);
-    setCell("C", t2Start, "Código", hdrStyle);
-    setCell("D", t2Start, "Material", hdrStyle);
-    setCell("E", t2Start, "Quantidade", hdrStyle);
-    setCell("F", t2Start, "Unidade", hdrStyle);
+    sc("B", t2Start, "Data", XLSX_HDR); sc("C", t2Start, "Código", XLSX_HDR); sc("D", t2Start, "Material", XLSX_HDR);
+    sc("E", t2Start, "Quantidade", XLSX_HDR); sc("F", t2Start, "Unidade", XLSX_HDR);
 
     const matByDate = {};
-    stockFiltered.forEach(e => {
-      if (!matByDate[e.date]) matByDate[e.date] = [];
-      matByDate[e.date].push(e);
-    });
+    stockFiltered.forEach(e => { if (!matByDate[e.date]) matByDate[e.date] = []; matByDate[e.date].push(e); });
 
     let matRow = t2Start + 1;
-    Object.entries(matByDate)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .forEach(([date, mats]) => {
-        const startRow = matRow;
-        mats.forEach((e, idx) => {
-          setCell("B", matRow, idx === 0 ? fmtDate(date) : "", dataStyle);
-          setCell("C", matRow, fixText(e.code || ""), dataStyle);
-          setCell("D", matRow, fixText(e.name || ""), dataStyle);
-          setCell("E", matRow, typeof e.qty === "number" ? e.qty : (parseFloat(e.qty) || 0), dataStyle);
-          setCell("F", matRow, fixText(e.unit || ""), dataStyle);
-          matRow++;
-        });
-        if (mats.length > 1) {
-          merges.push({ s: { r: startRow - 1, c: 1 }, e: { r: matRow - 2, c: 1 } });
-        }
+    Object.entries(matByDate).sort(([a], [b]) => a.localeCompare(b)).forEach(([date, mats]) => {
+      const startRow = matRow;
+      mats.forEach((e, idx) => {
+        sc("B", matRow, idx === 0 ? fmtDatePT(date) : "", XLSX_DATA);
+        sc("C", matRow, fixText(e.code || ""), XLSX_DATA);
+        sc("D", matRow, fixText(e.name || ""), XLSX_DATA);
+        sc("E", matRow, typeof e.qty === "number" ? e.qty : (parseFloat(e.qty) || 0), XLSX_DATA);
+        sc("F", matRow, fixText(e.unit || ""), XLSX_DATA);
+        matRow++;
       });
+      if (mats.length > 1) merges.push({ s: { r: startRow - 1, c: 1 }, e: { r: matRow - 2, c: 1 } });
+    });
 
     ws["!merges"] = merges;
     ws["!ref"] = `A1:F${Math.max(matRow - 1, t2Start)}`;
 
-    const allDatesArr = [
-      ...sortedHistory.map(a => a.date),
-      ...stockFiltered.map(e => e.date),
-    ].filter(Boolean).sort();
+    const allDatesArr = [...sortedHistory.map(a => a.date), ...stockFiltered.map(e => e.date)].filter(Boolean).sort();
     const startD = filterFrom || allDatesArr[0] || "";
     const endD = filterTo || allDatesArr[allDatesArr.length - 1] || "";
     const sheetName = `relatorio_${startD.replace(/-/g, "")}_${endD.replace(/-/g, "")}`.slice(0, 31);
 
-    const wb = XLSXStyle.utils.book_new();
-    XLSXStyle.utils.book_append_sheet(wb, ws, sheetName || "relatorio");
-
-    const buf = XLSXStyle.write(wb, { bookType: "xlsx", type: "array" });
-    const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${sheetName || "relatorio"}.xlsx`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    xlsxSave(ws, sheetName || "relatorio", `${sheetName || "relatorio"}.xlsx`);
   }
 
   if (loading || wLoading || sLoading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
@@ -1375,7 +1311,7 @@ function AttendanceTab() {
           openHistorico,
           () => setOpenHistorico(v => !v),
           histFiltered.length > 0 && openHistorico
-            ? <><button onClick={e => { e.stopPropagation(); doExport(); }} style={{ ...S.btnGhost, fontSize: 11, padding: "3px 10px", border: "1.5px solid #22c55e", color: "#16a34a" }}>📥 CSV</button><button onClick={e => { e.stopPropagation(); doExportXLSX(); }} style={{ ...S.btnGhost, fontSize: 11, padding: "3px 10px", border: "1.5px solid #16a34a", color: "#15803d", marginLeft: 6 }}>📊 Excel</button></>
+            ? <button onClick={e => { e.stopPropagation(); doExportXLSX(); }} style={{ ...S.btnGhost, fontSize: 11, padding: "3px 10px", border: "1.5px solid #16a34a", color: "#15803d" }}>📊 Excel</button>
             : null
         )}
         {openHistorico && (
