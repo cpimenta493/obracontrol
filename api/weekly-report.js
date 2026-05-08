@@ -90,14 +90,21 @@ module.exports = async function handler(req, res) {
     }
 
     if (!force) {
-      const nowUTC   = new Date();
-      const month    = nowUTC.getUTCMonth() + 1;
-      const ptOffset = (month >= 3 && month <= 10) ? 2 : 1;
-      const ptTime   = new Date(nowUTC.getTime() + ptOffset * 3600000);
-      const ptDay    = ptTime.getUTCDay();
-      const configDay = parseInt(config.reportDay ?? 1);
+      const nowUTC    = new Date();
+      const month     = nowUTC.getUTCMonth() + 1;
+      const ptOffset  = (month >= 3 && month <= 10) ? 2 : 1;
+      const ptTime    = new Date(nowUTC.getTime() + ptOffset * 3600000);
+      const ptDay     = ptTime.getUTCDay();   // 0=Dom 1=Seg … 6=Sáb
+      const ptHour    = ptTime.getUTCHours(); // hora local PT (0-23)
+
+      const configDay  = parseInt(config.reportDay  ?? 1);
+      const configHour = parseInt(config.reportHour ?? 8);
+
       if (ptDay !== configDay) {
         return res.status(200).json({ skipped: true, reason: `Não é o dia configurado (config: dia ${configDay}; hoje: dia ${ptDay} PT).` });
+      }
+      if (ptHour !== configHour) {
+        return res.status(200).json({ skipped: true, reason: `Não é a hora configurada (config: ${configHour}h; agora: ${ptHour}h PT).` });
       }
       const { thisMon } = previousWeekRange();
       if (config.reportLastSent && config.reportLastSent >= thisMon) {
