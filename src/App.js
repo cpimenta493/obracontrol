@@ -987,7 +987,6 @@ function StockTab() {
 function AttendanceTab() {
   const [attendance, setAttendance, loading] = useFirebase("attendance", DEF_ATTENDANCE);
   const [workers, setWorkers, wLoading] = useFirebase("workers", INITIAL_WORKERS);
-  const [stock, , sLoading] = useFirebase("stock", DEF_STOCK);
   const [selDate, setSelDate] = useState(todayStr());
   const [showManageWorkers, setShowManageWorkers] = useState(false);
   const [newWorkerName, setNewWorkerName] = useState("");
@@ -1076,8 +1075,6 @@ function AttendanceTab() {
   }).sort((a, b) => b.date.localeCompare(a.date));
 
   function doExportXLSX() {
-    const allStock = stock || [];
-
     function fixText(str) {
       if (str === null || str === undefined) return "";
       return String(str)
@@ -1094,11 +1091,8 @@ function AttendanceTab() {
     const merges = [];
     const sc = (col, row, val, sty) => xlsxCell(ws, col, row, val, sty);
 
-    // A vazio | B Data | C Funcionários | D Hora Entrada | E Hora Saída | F Trabalhos
-    // (Table 2 reutiliza B-F: B Data | C Código | D Material | E Qtd | F Unidade)
-    ws["!cols"] = [{ wch: 2 }, { wch: 11 }, { wch: 20 }, { wch: 35 }, { wch: 12 }, { wch: 50 }];
+    ws["!cols"] = [{ wch: 2 }, { wch: 11 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 55 }];
 
-    // ── TABLE 1: Trabalhos ──
     sc("B", 1, "Data", XLSX_HDR); sc("C", 1, "Funcionários", XLSX_HDR);
     sc("D", 1, "Hora Entrada", XLSX_HDR); sc("E", 1, "Hora Saída", XLSX_HDR);
     sc("F", 1, "Trabalhos Realizados", XLSX_HDR);
@@ -1120,7 +1114,7 @@ function AttendanceTab() {
       workerObjs.forEach((w, idx) => {
         sc("B", currentRow, idx === 0 ? fmtDatePT(a.date) : "", XLSX_DATA);
         sc("C", currentRow, w.name, XLSX_DATA);
-        sc("D", currentRow, w.wh.in || "", XLSX_DATA);
+        sc("D", currentRow, w.wh.in  || "", XLSX_DATA);
         sc("E", currentRow, w.wh.out || "", XLSX_DATA);
         sc("F", currentRow, idx === 0 ? fixText(a.works || "") : "", XLSX_DATA);
         currentRow++;
@@ -1131,44 +1125,18 @@ function AttendanceTab() {
       }
     });
 
-    // ── TABLE 2: Materiais ──
-    const stockFiltered = allStock
-      .filter(e => { const mf = filterFrom ? e.date >= filterFrom : true; const mt = filterTo ? e.date <= filterTo : true; return mf && mt; })
-      .sort((a, b) => a.date.localeCompare(b.date));
-
-    const t2Start = Math.max(11, currentRow + 1);
-    sc("B", t2Start, "Data", XLSX_HDR); sc("C", t2Start, "Código", XLSX_HDR); sc("D", t2Start, "Material", XLSX_HDR);
-    sc("E", t2Start, "Quantidade", XLSX_HDR); sc("F", t2Start, "Unidade", XLSX_HDR);
-
-    const matByDate = {};
-    stockFiltered.forEach(e => { if (!matByDate[e.date]) matByDate[e.date] = []; matByDate[e.date].push(e); });
-
-    let matRow = t2Start + 1;
-    Object.entries(matByDate).sort(([a], [b]) => a.localeCompare(b)).forEach(([date, mats]) => {
-      const startRow = matRow;
-      mats.forEach((e, idx) => {
-        sc("B", matRow, idx === 0 ? fmtDatePT(date) : "", XLSX_DATA);
-        sc("C", matRow, fixText(e.code || ""), XLSX_DATA);
-        sc("D", matRow, fixText(e.name || ""), XLSX_DATA);
-        sc("E", matRow, typeof e.qty === "number" ? e.qty : (parseFloat(e.qty) || 0), XLSX_DATA);
-        sc("F", matRow, fixText(e.unit || ""), XLSX_DATA);
-        matRow++;
-      });
-      if (mats.length > 1) merges.push({ s: { r: startRow - 1, c: 1 }, e: { r: matRow - 2, c: 1 } });
-    });
-
     ws["!merges"] = merges;
-    ws["!ref"] = `A1:F${Math.max(matRow - 1, t2Start)}`;
+    ws["!ref"] = `A1:F${Math.max(currentRow - 1, 1)}`;
 
-    const allDatesArr = [...sortedHistory.map(a => a.date), ...stockFiltered.map(e => e.date)].filter(Boolean).sort();
-    const startD = filterFrom || allDatesArr[0] || "";
-    const endD = filterTo || allDatesArr[allDatesArr.length - 1] || "";
-    const sheetName = `relatorio_${startD.replace(/-/g, "")}_${endD.replace(/-/g, "")}`.slice(0, 31);
+    const dates = sortedHistory.map(a => a.date).filter(Boolean);
+    const startD = filterFrom || dates[0] || "";
+    const endD   = filterTo   || dates[dates.length - 1] || "";
+    const name   = `folha_ponto_${startD.replace(/-/g, "")}_${endD.replace(/-/g, "")}`.slice(0, 31);
 
-    xlsxSave(ws, sheetName || "relatorio", `${sheetName || "relatorio"}.xlsx`);
+    xlsxSave(ws, name || "folha_ponto", `${name || "folha_ponto"}.xlsx`);
   }
 
-  if (loading || wLoading || sLoading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
+  if (loading || wLoading) return <div style={{ textAlign: "center", padding: 60, color: "#94a3b8", fontFamily: "'Sora',sans-serif" }}>A sincronizar…</div>;
 
   const today = todayStr();
   const calCells = calDays(calMonth);
