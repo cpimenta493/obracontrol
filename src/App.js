@@ -1094,29 +1094,40 @@ function AttendanceTab() {
     const merges = [];
     const sc = (col, row, val, sty) => xlsxCell(ws, col, row, val, sty);
 
-    ws["!cols"] = [{ wch: 2 }, { wch: 11 }, { wch: 14.3 }, { wch: 68.7 }, { wch: 11 }, { wch: 11 }];
+    // A vazio | B Data | C Funcionários | D Hora Entrada | E Hora Saída | F Trabalhos
+    // (Table 2 reutiliza B-F: B Data | C Código | D Material | E Qtd | F Unidade)
+    ws["!cols"] = [{ wch: 2 }, { wch: 11 }, { wch: 20 }, { wch: 35 }, { wch: 12 }, { wch: 50 }];
 
     // ── TABLE 1: Trabalhos ──
-    sc("B", 1, "Data", XLSX_HDR); sc("C", 1, "Funcionários", XLSX_HDR); sc("D", 1, "Trabalhos Realizados", XLSX_HDR);
+    sc("B", 1, "Data", XLSX_HDR); sc("C", 1, "Funcionários", XLSX_HDR);
+    sc("D", 1, "Hora Entrada", XLSX_HDR); sc("E", 1, "Hora Saída", XLSX_HDR);
+    sc("F", 1, "Trabalhos Realizados", XLSX_HDR);
 
     const sortedHistory = [...histFiltered].sort((a, b) => a.date.localeCompare(b.date));
     let currentRow = 2;
     sortedHistory.forEach(a => {
-      const workers = (a.present || []).map(id => fixText(resolveName(id, a)));
-      if (workers.length === 0) {
-        sc("B", currentRow, fmtDatePT(a.date), XLSX_DATA); sc("C", currentRow, "", XLSX_DATA); sc("D", currentRow, fixText(a.works || ""), XLSX_DATA);
+      const workerObjs = (a.present || []).map(id => ({
+        name: fixText(resolveName(id, a)),
+        wh: (a.workerHours || {})[id] || {},
+      }));
+      if (workerObjs.length === 0) {
+        sc("B", currentRow, fmtDatePT(a.date), XLSX_DATA); sc("C", currentRow, "", XLSX_DATA);
+        sc("D", currentRow, "", XLSX_DATA); sc("E", currentRow, "", XLSX_DATA);
+        sc("F", currentRow, fixText(a.works || ""), XLSX_DATA);
         currentRow++; return;
       }
       const startRow = currentRow;
-      workers.forEach((w, idx) => {
+      workerObjs.forEach((w, idx) => {
         sc("B", currentRow, idx === 0 ? fmtDatePT(a.date) : "", XLSX_DATA);
-        sc("C", currentRow, w, XLSX_DATA);
-        sc("D", currentRow, idx === 0 ? fixText(a.works || "") : "", XLSX_DATA);
+        sc("C", currentRow, w.name, XLSX_DATA);
+        sc("D", currentRow, w.wh.in || "", XLSX_DATA);
+        sc("E", currentRow, w.wh.out || "", XLSX_DATA);
+        sc("F", currentRow, idx === 0 ? fixText(a.works || "") : "", XLSX_DATA);
         currentRow++;
       });
-      if (workers.length > 1) {
-        merges.push({ s: { r: startRow - 1, c: 1 }, e: { r: currentRow - 2, c: 1 } });
-        merges.push({ s: { r: startRow - 1, c: 3 }, e: { r: currentRow - 2, c: 3 } });
+      if (workerObjs.length > 1) {
+        merges.push({ s: { r: startRow - 1, c: 1 }, e: { r: currentRow - 2, c: 1 } }); // B
+        merges.push({ s: { r: startRow - 1, c: 5 }, e: { r: currentRow - 2, c: 5 } }); // F
       }
     });
 
