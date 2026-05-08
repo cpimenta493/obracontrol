@@ -239,15 +239,18 @@ module.exports = async function handler(req, res) {
       }],
     });
 
-    const today = new Date().toISOString().slice(0, 10);
-    await firebaseSet("config/reportLastSent", today);
+    if (!force) {
+      const today = new Date().toISOString().slice(0, 10);
+      await firebaseSet("config/reportLastSent", today);
+    }
 
     return res.status(200).json({
-      success:   true,
-      period:    `${fromDate} → ${toDate}`,
+      success:        true,
+      period:         `${fromDate} → ${toDate}`,
       dataRows,
-      recipient: recipientEmail,
-      forced:    force,
+      recipient:      recipientEmail,
+      forced:         force,
+      lastSentUpdated: !force,
     });
 
   } catch (err) {
